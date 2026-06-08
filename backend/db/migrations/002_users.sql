@@ -6,7 +6,6 @@ CREATE TABLE users (
     first_name      VARCHAR(50) NOT NULL,
     last_name       VARCHAR(50) NOT NULL,
     password_hash   TEXT NOT NULL,
-    age             INT NOT NULL,
     verified        BOOLEAN DEFAULT false,
 
     -- Profile (IV.2)

@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Depends
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.pool import open_pool,  close_pool
+from db.pool import open_pool, close_pool
 from psycopg import AsyncConnection
-from app.db.dependencies import get_db
+from db.dependencies import get_db
 
 
 @asynccontextmanager
