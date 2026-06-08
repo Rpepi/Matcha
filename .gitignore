@@ -1,0 +1,45 @@
+# ─── Secrets ──
+.env
+.env.local
+.env.production
+
+# ─── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.whl
+.venv/
+venv/
+
+# ─── Node / React / Vite ──────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ─── Uploads utilisateurs (photos) ────────────────────────────────
+backend/uploads/
+
+# ─── Docker ────────────────────────────────────────────────────────
+pgdata/
+
+# ─── IDE / Éditeurs ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Logs ──────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ─── Tests / Coverage ─────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/

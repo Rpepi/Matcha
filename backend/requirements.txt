@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+psycopg[binary]
+psycopg[pool]
+argon2-cffi
+itsdangerous
+pillow
+python-dotenv
+python-multipart
+faker
