@@ -10,7 +10,7 @@ CREATE TABLE users (
 
     -- Profile (IV.2)
     gender          VARCHAR(20),
-    orientation     VARCHAR(20) DEFAULT 'straight',
+    orientation     VARCHAR(20) DEFAULT 'bi',
     bio             TEXT,
     birth_date      DATE,
     fame_rating     INTEGER DEFAULT 0,

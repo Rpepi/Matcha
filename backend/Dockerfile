@@ -8,15 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebp-dev \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /backend
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/uploads
+RUN mkdir -p /backend/uploads
 
-EXPOSE 8000
+EXPOSE 5000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.wsgi:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
