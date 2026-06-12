@@ -3,6 +3,7 @@ from fastapi import FastAPI
 import redis.asyncio as redis
 from redis.backoff import FullJitterBackoff
 from redis.retry import Retry
+from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.pool import open_pool, close_pool
@@ -11,7 +12,7 @@ from app.routes.authentification import router as authentification_router
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
-retry = Retry(FullJitterBackoff(), 60, 8)
+retry = Retry(FullJitterBackoff(), 3, (RedisConnectionError, RedisTimeoutError))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

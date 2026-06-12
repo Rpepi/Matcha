@@ -43,3 +43,5 @@ npm-debug.log*
 .coverage
 htmlcov/
 .pytest_cache/
+
+CLAUDE.md
