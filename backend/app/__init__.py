@@ -7,8 +7,13 @@ from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutErr
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.pool import open_pool, close_pool
+from app.log import setup_logging
 from app.routes.health import router as health_router
 from app.routes.authentification import router as authentification_router
+from app.routes.profile import router as profile_router
+from app.routes.users import router as users_router
+from app.routes.chat import router as chat_router
+from app.routes.notifications import router as notifications_router
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
@@ -35,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    setup_logging()
     app = FastAPI(lifespan=lifespan)
 
     app.add_middleware(
@@ -48,6 +54,9 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(authentification_router)
-
+    app.include_router(profile_router)
+    app.include_router(users_router)
+    app.include_router(chat_router)
+    app.include_router(notifications_router)
 
     return app

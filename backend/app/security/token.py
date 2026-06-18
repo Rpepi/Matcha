@@ -2,6 +2,9 @@ from itsdangerous import URLSafeTimedSerializer
 import os
 import smtplib
 from email.message import EmailMessage
+from app.log import get_logger
+
+logger = get_logger(__name__)
 
 MAIL_SECRET = os.getenv("MAIL_SECRET")
 FRONTEND_URL = os.getenv("FRONTED_URL", "http://localhost:5173")
@@ -16,8 +19,12 @@ def _send_email(to: str, subject: str, body: str):
     msg["From"] = "no-reply@matcha.local"
     msg["To"] = to
     msg.set_content(body)
-    with smtplib.SMTP(os.getenv("MAIL_HOST"), int(os.getenv("MAIL_PORT"))) as smtp:
-        smtp.send_message(msg)
+    try:
+        with smtplib.SMTP(os.getenv("MAIL_HOST"), int(os.getenv("MAIL_PORT"))) as smtp:
+            smtp.send_message(msg)
+    except Exception:
+        logger.exception("Failed to send email to %s (subject: %s)", to, subject)
+        raise
 
 
 def send_verification_email(to: str, token: str):

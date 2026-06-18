@@ -45,3 +45,4 @@ htmlcov/
 .pytest_cache/
 
 CLAUDE.md
+.claude

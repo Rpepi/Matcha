@@ -10,7 +10,9 @@ from app.security.session import create_session
 from app.security.passwords import hash_password, verify_password, ph, is_password_valid
 from app.security.token import generate_verification_token, send_verification_email, send_reset_email, serializer
 from app.utils import require_json
+from app.log import get_logger
 
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -26,6 +28,7 @@ async def authenticate_user(username: str, password: str, conn: AsyncConnection)
     hash_to_check = row["password_hash"] if row else DUMMY_HASH  #cannot now if an account exist mesuring the execution time.
     password_ok = await verify_password(hash_to_check, password)
     if row is None or not password_ok:
+        logger.warning("Failed login attempt for username '%s'", username)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not row["verified"]:
         raise HTTPException(status_code=403, detail="Email not verified")
@@ -46,6 +49,7 @@ async def login(request: Request, response: Response, redis: redis.Redis = Depen
         raise HTTPException(status_code=400, detail="Username and password must be strings")
     user_id, profile_complete = await authenticate_user(username, password, conn)
     await create_session(response, user_id, redis)
+    logger.info("User %s logged in", user_id)
     return {
         "id": user_id,
         "username": username,
@@ -191,7 +195,7 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     row = await cursor.fetchone()
     user_id = row["id"]
     await conn.commit()
-    
+    logger.info("New account registered: username='%s' id=%s", username, user_id)
     token = generate_verification_token(str(user_id))
     send_verification_email(email, token)
     return {"message": "Account created. Check your email to verify your account."}

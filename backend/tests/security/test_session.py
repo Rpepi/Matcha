@@ -95,3 +95,88 @@ class TestCreateSession:
                 await create_session(response, "42", redis)
 
         response.set_cookie.assert_not_called()
+
+    async def test_redis_error_is_logged(self):
+        from app.security.session import create_session
+        response = make_mock_response()
+        redis = make_mock_redis(fail=True)
+
+        with patch("app.security.session.SECRET", "test-secret-key-32bytes-long!!!!"), \
+             patch("app.security.session.logger") as mock_logger:
+            with pytest.raises(HTTPException):
+                await create_session(response, "42", redis)
+
+        mock_logger.exception.assert_called_once()
+
+
+# ── get_current_user_id ───────────────────────────────────────────────────────
+
+class TestGetCurrentUserId:
+    def _make_redis(self, user_id="1"):
+        r = AsyncMock()
+        r.get = AsyncMock(return_value=user_id)
+        return r
+
+    async def test_valid_cookie_returns_user_id(self):
+        from app.security.session import get_current_user_id
+        import hmac, hashlib
+        secret = "any-secret-key-for-this-unit-test!"
+        session_id = "abc123"
+        sig = hmac.new(secret.encode(), session_id.encode(), digestmod=hashlib.sha256).hexdigest()
+        cookie = f"{session_id}${sig}"
+        redis = self._make_redis("42")
+
+        with patch("app.security.session.SECRET", secret):
+            uid = await get_current_user_id(cookie, redis)
+
+        assert uid == "42"
+
+    async def test_missing_cookie_raises_401(self):
+        from app.security.session import get_current_user_id
+        redis = self._make_redis()
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user_id(None, redis)
+        assert exc.value.status_code == 401
+
+    async def test_empty_cookie_raises_401(self):
+        from app.security.session import get_current_user_id
+        redis = self._make_redis()
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user_id("", redis)
+        assert exc.value.status_code == 401
+
+    async def test_cookie_without_dollar_sign_raises_401(self):
+        from app.security.session import get_current_user_id
+        redis = self._make_redis()
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user_id("invalidsessionnocookie", redis)
+        assert exc.value.status_code == 401
+
+    async def test_tampered_hmac_raises_401(self):
+        from app.security.session import get_current_user_id
+        redis = self._make_redis()
+        cookie = "validsessionid$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+        with patch("app.security.session.SECRET", "any-secret-key-for-this-unit-test!"):
+            with pytest.raises(HTTPException) as exc:
+                await get_current_user_id(cookie, redis)
+        assert exc.value.status_code == 401
+
+    async def test_expired_session_raises_401(self):
+        from app.security.session import get_current_user_id
+        import hmac, hashlib
+        secret = "any-secret-key-for-this-unit-test!"
+        session_id = "expiredsession"
+        sig = hmac.new(secret.encode(), session_id.encode(), digestmod=hashlib.sha256).hexdigest()
+        cookie = f"{session_id}${sig}"
+
+        redis = AsyncMock()
+        redis.get = AsyncMock(return_value=None)  # session not in Redis
+
+        with patch("app.security.session.SECRET", "any-secret-key-for-this-unit-test!"):
+            with pytest.raises(HTTPException) as exc:
+                await get_current_user_id(cookie, redis)
+        assert exc.value.status_code == 401

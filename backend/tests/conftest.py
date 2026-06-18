@@ -1,4 +1,7 @@
 import os
+import hmac
+import hashlib
+
 os.environ.setdefault("SESSION_SECRET", "test-secret-key-for-testing-only-32b")
 os.environ.setdefault("MAIL_SECRET", "test-mail-secret-for-testing-only-32b")
 os.environ.setdefault("MAIL_HOST", "localhost")
@@ -7,6 +10,29 @@ os.environ.setdefault("MAIL_PORT", "1025")
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from httpx import AsyncClient, ASGITransport
+
+# Read the actual secret so make_session_cookie always matches session.py's SECRET.
+SESSION_SECRET = os.environ["SESSION_SECRET"]
+
+
+def make_session_cookie(session_id: str = "testsession") -> str:
+    h = hmac.new(SESSION_SECRET.encode(), session_id.encode(), digestmod=hashlib.sha256).hexdigest()
+    return f"{session_id}${h}"
+
+
+def _build_app(mock_db, mock_redis):
+    from app import create_app
+    from app.db.dependencies import get_db
+    from app.cache.dependencies import get_redis
+
+    application = create_app()
+
+    async def override_get_db():
+        yield mock_db
+
+    application.dependency_overrides[get_db] = override_get_db
+    application.dependency_overrides[get_redis] = lambda: mock_redis
+    return application
 
 
 @pytest.fixture
@@ -35,24 +61,31 @@ def mock_redis():
 
 @pytest.fixture
 async def client(mock_db, mock_redis):
-    """HTTP test client with DB and Redis dependencies overridden."""
+    """Unauthenticated HTTP test client."""
     with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
          patch("app.db.pool.close_pool", new_callable=AsyncMock), \
          patch("redis.asyncio.Redis", return_value=mock_redis):
 
-        from app import create_app
-        from app.db.dependencies import get_db
-        from app.cache.dependencies import get_redis
-
-        application = create_app()
-
-        async def override_get_db():
-            yield mock_db
-
-        application.dependency_overrides[get_db] = override_get_db
-        application.dependency_overrides[get_redis] = lambda: mock_redis
+        application = _build_app(mock_db, mock_redis)
 
         async with AsyncClient(
             transport=ASGITransport(app=application), base_url="http://test"
+        ) as c:
+            yield c
+
+
+@pytest.fixture
+async def auth_client(mock_db, mock_redis):
+    """Authenticated HTTP test client with session cookie preset."""
+    with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
+         patch("app.db.pool.close_pool", new_callable=AsyncMock), \
+         patch("redis.asyncio.Redis", return_value=mock_redis):
+
+        application = _build_app(mock_db, mock_redis)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=application),
+            base_url="http://test",
+            cookies={"session": make_session_cookie()},
         ) as c:
             yield c

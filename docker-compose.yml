@@ -66,7 +66,7 @@ services:
       image: redis:7
       restart: unless-stopped
       env_file:
-      - ..env
+      - .env
       environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       ports:
@@ -79,8 +79,8 @@ services:
       volumes:
         - redis_data:/data
       healthcheck:
-        test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-        interval: 1s
+        test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD --no-auth-warning ping | grep PONG"]
+        interval: 5s
         timeout: 3s
         retries: 5
       

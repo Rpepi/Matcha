@@ -1,12 +1,14 @@
 import os
 import psycopg
 from pathlib import Path
+from app.log import setup_logging, get_logger
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 MIGRATION_DIR = Path(__file__).resolve().parent
 
 
 def run_migration():
+    logger = get_logger(__name__)
     conn = psycopg.connect(DATABASE_URL)
 
     conn.execute("""
@@ -24,7 +26,7 @@ def run_migration():
     count = 0
     for file in files:
         if file in done:
-            print(f"skipping {file}")
+            logger.info("skipping %s", file)
             continue
         sql = (MIGRATION_DIR / file).read_text()
         conn.execute(sql)
@@ -32,13 +34,14 @@ def run_migration():
             "INSERT INTO migrations (filename) VALUES (%s)", (file,)
         )
         conn.commit()
-        print(f"✅ {file}")
-        count +=1
+        logger.info("applied %s", file)
+        count += 1
     if count == 0:
-        print("Nothing to migrate.")
+        logger.info("Nothing to migrate.")
     else:
-        print(f"Done . {count} migrations applied.")
+        logger.info("Done. %d migration(s) applied.", count)
     conn.close()
 
 if __name__ == "__main__":
+    setup_logging()
     run_migration()

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 class TestGenerateVerificationToken:
@@ -100,6 +100,14 @@ class TestSendResetEmail:
             send_reset_email("alice@test.com", "tok")
             msg = mock_smtp.send_message.call_args.args[0]
             assert "/reset-password" in msg.get_content()
+
+    def test_smtp_failure_is_logged_and_reraised(self):
+        from app.security.token import send_verification_email
+        with patch("smtplib.SMTP", side_effect=ConnectionRefusedError("mailpit down")), \
+             patch("app.security.token.logger") as mock_logger:
+            with pytest.raises(ConnectionRefusedError):
+                send_verification_email("alice@test.com", "token")
+        mock_logger.exception.assert_called_once()
 
     def test_different_subject_than_verification_email(self):
         from app.security.token import send_reset_email, send_verification_email
