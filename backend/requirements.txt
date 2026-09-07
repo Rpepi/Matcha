@@ -9,3 +9,6 @@ python-dotenv
 python-multipart
 faker
 redis
+requests
+google-auth
+httpx

@@ -7,11 +7,15 @@ logger = get_logger(__name__)
 
 pool: AsyncConnectionPool | None = None
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL: 
+    raise RuntimeError("env variable DATABASE_URL variable is not set")
+
 
 async def open_pool():
     global pool
     pool = AsyncConnectionPool(
-        conninfo=os.getenv("DATABASE_URL"),
+        conninfo=DATABASE_URL,
         min_size=2,
         max_size=5,
         kwargs={"row_factory": dict_row},

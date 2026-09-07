@@ -6,6 +6,8 @@ import psycopg
 from psycopg import errors
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL: 
+    raise RuntimeError("env variable DATABASE_URL variable is not set")
 
 
 fake = Faker('EN_US')
@@ -26,7 +28,6 @@ TAGS = [
 
 def generate_user() -> dict:
     user = {
-            "username": fake.unique.user_name(),
             "email": fake.unique.email(),
             "first_name": fake.unique.first_name(),
             "last_name": fake.unique.last_name(),

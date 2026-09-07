@@ -7,7 +7,13 @@ from app.log import get_logger
 logger = get_logger(__name__)
 
 MAIL_SECRET = os.getenv("MAIL_SECRET")
-FRONTEND_URL = os.getenv("FRONTED_URL", "http://localhost:5173")
+MAIL_HOST = os.getenv("MAIL_HOST")
+MAIL_PORT = os.getenv("MAIL_PORT")
+
+if not MAIL_SECRET or not MAIL_HOST or not MAIL_PORT:
+    raise RuntimeError("env variable MAIL_SECRET not set")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
 serializer = URLSafeTimedSerializer(MAIL_SECRET)
 
 def generate_verification_token(user_id: str) -> str:
@@ -20,7 +26,7 @@ def _send_email(to: str, subject: str, body: str):
     msg["To"] = to
     msg.set_content(body)
     try:
-        with smtplib.SMTP(os.getenv("MAIL_HOST"), int(os.getenv("MAIL_PORT"))) as smtp:
+        with smtplib.SMTP(MAIL_HOST, int(MAIL_PORT)) as smtp:
             smtp.send_message(msg)
     except Exception:
         logger.exception("Failed to send email to %s (subject: %s)", to, subject)

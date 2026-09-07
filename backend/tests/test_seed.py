@@ -6,7 +6,7 @@ from app.seed import generate_user, TAGS
 
 
 REQUIRED_KEYS = {
-    "username", "email", "first_name", "last_name",
+    "email", "first_name", "last_name",
     "password_hash", "birth_date", "bio",
     "gender", "orientation",
     "latitude", "longitude",
@@ -65,10 +65,10 @@ class TestGenerateUser:
         assert isinstance(user["bio"], str)
         assert len(user["bio"]) > 0
 
-    def test_two_users_have_different_usernames(self):
+    def test_two_users_have_different_emails(self):
         u1 = generate_user()
         u2 = generate_user()
-        assert u1["username"] != u2["username"]
+        assert u1["email"] != u2["email"]
 
 
 # ── seed() function ───────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ from datetime import date as _date
 
 def _fake_user(n: int) -> dict:
     return {
-        "username": f"user{n}", "email": f"user{n}@test.com",
+        "email": f"user{n}@test.com",
         "first_name": "A", "last_name": "B",
         "password_hash": "$argon2id$v=19$m=19456,t=2,p=1$fake",
         "birth_date": _date(1990, 1, 1), "bio": "bio",

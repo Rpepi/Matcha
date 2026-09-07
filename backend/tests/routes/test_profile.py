@@ -6,7 +6,7 @@ JPEG_BYTES = b'\xff\xd8\xff\xe0' + b'\x00' * 200
 PNG_BYTES = b'\x89PNG\r\n\x1a\n' + b'\x00' * 200
 
 PROFILE_ROW = {
-    "id": "1", "username": "alice", "email": "alice@test.com",
+    "id": "1", "email": "alice@test.com",
     "first_name": "Alice", "last_name": "Smith", "gender": "female",
     "orientation": "bisexual", "bio": "hello", "birth_date": "2000-01-01",
     "fame_rating": 0, "latitude": 48.8, "longitude": 2.3, "city": "Paris",
@@ -34,7 +34,7 @@ class TestGetProfileMe:
         res = await auth_client.get("/profile/me")
         assert res.status_code == 200
         data = res.json()
-        assert data["username"] == "alice"
+        assert data["email"] == "alice@test.com"
         assert data["tags"] == ["hiking", "music"]
         assert len(data["photos"]) == 1
         assert data["photos"][0]["path"] == "/photos/1.jpg"

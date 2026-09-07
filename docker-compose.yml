@@ -26,7 +26,7 @@ services:
 
 
   # ─── React + Vite ─────────────────────────
-  front:
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile

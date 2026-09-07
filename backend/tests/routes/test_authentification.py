@@ -25,7 +25,6 @@ def make_mock_conn(row=None):
 
 
 VALID_REGISTER_BODY = {
-    "username": "alice",
     "password": "Val1dP@ss!",
     "email": "alice@test.com",
     "first_name": "Alice",
@@ -44,17 +43,17 @@ class TestAuthenticateUser:
         row = make_db_row(user_id=7, password="Val1dP@ss!", verified=True, profile_complete=True)
         conn = make_mock_conn(row)
 
-        user_id, profile_complete = await authenticate_user("alice", "Val1dP@ss!", conn)
+        user_id, profile_complete = await authenticate_user("alice@test.com", "Val1dP@ss!", conn)
 
         assert user_id == "7"
         assert profile_complete is True
 
-    async def test_unknown_username_raises_401(self):
+    async def test_unknown_email_raises_401(self):
         from app.routes.authentification import authenticate_user
         conn = make_mock_conn(row=None)
 
         with pytest.raises(HTTPException) as exc_info:
-            await authenticate_user("ghost", "anything", conn)
+            await authenticate_user("ghost@test.com", "anything", conn)
 
         assert exc_info.value.status_code == 401
 
@@ -63,7 +62,7 @@ class TestAuthenticateUser:
         conn = make_mock_conn(make_db_row(password="correct_password"))
 
         with pytest.raises(HTTPException) as exc_info:
-            await authenticate_user("alice", "wrong_password", conn)
+            await authenticate_user("alice@test.com", "wrong_password", conn)
 
         assert exc_info.value.status_code == 401
 
@@ -72,7 +71,7 @@ class TestAuthenticateUser:
         conn = make_mock_conn(make_db_row(password="Val1dP@ss!", verified=False))
 
         with pytest.raises(HTTPException) as exc_info:
-            await authenticate_user("alice", "Val1dP@ss!", conn)
+            await authenticate_user("alice@test.com", "Val1dP@ss!", conn)
 
         assert exc_info.value.status_code == 403
 
@@ -82,7 +81,7 @@ class TestAuthenticateUser:
         conn = make_mock_conn(row=None)
 
         with pytest.raises(HTTPException) as exc_info:
-            await authenticate_user("ghost", "dummy", conn)
+            await authenticate_user("ghost@test.com", "dummy", conn)
 
         assert exc_info.value.status_code == 401
 
@@ -90,10 +89,10 @@ class TestAuthenticateUser:
         from app.routes.authentification import authenticate_user
 
         with pytest.raises(HTTPException) as e1:
-            await authenticate_user("ghost", "anything", make_mock_conn(row=None))
+            await authenticate_user("ghost@test.com", "anything", make_mock_conn(row=None))
 
         with pytest.raises(HTTPException) as e2:
-            await authenticate_user("alice", "wrong", make_mock_conn(make_db_row(password="correct")))
+            await authenticate_user("alice@test.com", "wrong", make_mock_conn(make_db_row(password="correct")))
 
         assert e1.value.detail == e2.value.detail
 
@@ -108,11 +107,11 @@ class TestLoginRoute:
             "verified": True, "profile_complete": False,
         })
 
-        resp = await client.post("/auth/login", json={"username": "alice", "password": "Val1dP@ss!"})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com", "password": "Val1dP@ss!"})
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["username"] == "alice"
+        assert data["email"] == "alice@test.com"
         assert "id" in data
         assert "profile_complete" in data
 
@@ -123,14 +122,14 @@ class TestLoginRoute:
             "verified": True, "profile_complete": False,
         })
 
-        resp = await client.post("/auth/login", json={"username": "alice", "password": "Val1dP@ss!"})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com", "password": "Val1dP@ss!"})
 
         assert "session" in resp.cookies
 
     async def test_wrong_content_type_returns_415(self, client):
         resp = await client.post(
             "/auth/login",
-            content="username=alice&password=Val1dP@ss!",
+            content="email=alice@test.com&password=Val1dP@ss!",
             headers={"content-type": "application/x-www-form-urlencoded"},
         )
         assert resp.status_code == 415
@@ -143,25 +142,25 @@ class TestLoginRoute:
         )
         assert resp.status_code == 400
 
-    async def test_missing_username_returns_400(self, client):
+    async def test_missing_email_returns_400(self, client):
         resp = await client.post("/auth/login", json={"password": "Val1dP@ss!"})
         assert resp.status_code == 400
 
     async def test_missing_password_returns_400(self, client):
-        resp = await client.post("/auth/login", json={"username": "alice"})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com"})
         assert resp.status_code == 400
 
-    async def test_null_username_returns_400(self, client):
-        resp = await client.post("/auth/login", json={"username": None, "password": "Val1dP@ss!"})
+    async def test_null_email_returns_400(self, client):
+        resp = await client.post("/auth/login", json={"email": None, "password": "Val1dP@ss!"})
         assert resp.status_code == 400
 
     async def test_integer_password_returns_400(self, client):
-        resp = await client.post("/auth/login", json={"username": "alice", "password": 12345})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com", "password": 12345})
         assert resp.status_code == 400
 
     async def test_unknown_user_returns_401(self, client, mock_cursor):
         mock_cursor.fetchone = AsyncMock(return_value=None)
-        resp = await client.post("/auth/login", json={"username": "ghost", "password": "anything"})
+        resp = await client.post("/auth/login", json={"email": "ghost@test.com", "password": "anything"})
         assert resp.status_code == 401
 
     async def test_wrong_password_returns_401(self, client, mock_cursor):
@@ -170,7 +169,7 @@ class TestLoginRoute:
             "id": 1, "password_hash": ph.hash("correct_password"),
             "verified": True, "profile_complete": False,
         })
-        resp = await client.post("/auth/login", json={"username": "alice", "password": "wrong_password"})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com", "password": "wrong_password"})
         assert resp.status_code == 401
 
     async def test_unverified_user_returns_403(self, client, mock_cursor):
@@ -179,7 +178,7 @@ class TestLoginRoute:
             "id": 1, "password_hash": ph.hash("Val1dP@ss!"),
             "verified": False, "profile_complete": False,
         })
-        resp = await client.post("/auth/login", json={"username": "alice", "password": "Val1dP@ss!"})
+        resp = await client.post("/auth/login", json={"email": "alice@test.com", "password": "Val1dP@ss!"})
         assert resp.status_code == 403
 
 
@@ -207,7 +206,7 @@ class TestRegisterRoute:
     async def test_wrong_content_type_returns_415(self, client):
         resp = await client.post(
             "/auth/register",
-            content="username=alice",
+            content="email=alice@test.com",
             headers={"content-type": "application/x-www-form-urlencoded"},
         )
         assert resp.status_code == 415
@@ -221,7 +220,7 @@ class TestRegisterRoute:
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("missing_field", [
-        "username", "password", "email", "first_name", "last_name", "gender", "birth_date"
+        "password", "email", "first_name", "last_name", "gender", "birth_date"
     ])
     async def test_missing_required_field_returns_400(self, client, missing_field):
         body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != missing_field}
@@ -229,7 +228,7 @@ class TestRegisterRoute:
         assert resp.status_code == 400
 
     async def test_non_string_required_field_returns_400(self, client):
-        body = {**VALID_REGISTER_BODY, "username": 123}
+        body = {**VALID_REGISTER_BODY, "first_name": 123}
         resp = await client.post("/auth/register", json=body)
         assert resp.status_code == 400
 

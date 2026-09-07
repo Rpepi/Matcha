@@ -3,7 +3,11 @@ import psycopg
 from pathlib import Path
 from app.log import setup_logging, get_logger
 
+
 DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL: 
+    raise RuntimeError("env variable DATABASE_URL variable is not set")
+
 MIGRATION_DIR = Path(__file__).resolve().parent
 
 

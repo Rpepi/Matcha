@@ -1,9 +1,11 @@
+import re
 from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from itsdangerous import SignatureExpired, BadSignature
-from datetime import date
+from datetime import date, datetime
 import redis.asyncio as redis
+from redis import Redis
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import create_session
@@ -11,6 +13,7 @@ from app.security.passwords import hash_password, verify_password, ph, is_passwo
 from app.security.token import generate_verification_token, send_verification_email, send_reset_email, serializer
 from app.utils import require_json
 from app.log import get_logger
+from app.security.session import get_current_user_id
 
 logger = get_logger(__name__)
 
@@ -20,15 +23,15 @@ router = APIRouter()
 DUMMY_HASH = ph.hash("dummy")
 
 
-async def authenticate_user(username: str, password: str, conn: AsyncConnection) -> tuple:
+async def authenticate_user(email: str, password: str, conn: AsyncConnection) -> tuple:
     cursor = await conn.execute(
-        "SELECT id, password_hash, verified, profile_complete FROM users WHERE username = %s", (username,)
+        "SELECT id, password_hash, verified, profile_complete FROM users WHERE email = %s", (email,)
     )
     row = await cursor.fetchone()
     hash_to_check = row["password_hash"] if row else DUMMY_HASH  #cannot now if an account exist mesuring the execution time.
     password_ok = await verify_password(hash_to_check, password)
     if row is None or not password_ok:
-        logger.warning("Failed login attempt for username '%s'", username)
+        logger.warning("Failed login attempt for email '%s'", email)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not row["verified"]:
         raise HTTPException(status_code=403, detail="Email not verified")
@@ -37,22 +40,22 @@ async def authenticate_user(username: str, password: str, conn: AsyncConnection)
 
 @router.post("/auth/login")
 async def login(request: Request, response: Response, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
-    
+
     body = await require_json(request) # will raise exception if not json format
 
     try:
-        username = body["username"]
+        email = body["email"]
         password = body["password"]
     except Exception:
-        raise HTTPException(status_code=400, detail="Username and password are required")
-    if not isinstance(username, str) or not isinstance(password, str):
-        raise HTTPException(status_code=400, detail="Username and password must be strings")
-    user_id, profile_complete = await authenticate_user(username, password, conn)
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    if not isinstance(email, str) or not isinstance(password, str) or not email.strip() or not password.strip():
+        raise HTTPException(status_code=400, detail="Email and password must be non-empty strings")
+    user_id, profile_complete = await authenticate_user(email, password, conn)
     await create_session(response, user_id, redis)
     logger.info("User %s logged in", user_id)
     return {
         "id": user_id,
-        "username": username,
+        "email": email,
         "profile_complete": profile_complete,
     }
 
@@ -126,7 +129,6 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     body = await require_json(request)
     
     try:
-        username = body["username"]
         password = body["password"]
         email = body["email"]
         first_name = body["first_name"]
@@ -141,8 +143,22 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     except Exception:
         raise HTTPException(status_code=400, detail="Required Fields are empty")
 
-    if not all(isinstance(body.get(f), str) for f in ["username", "password", "email", "first_name", "last_name", "gender", "birth_date"]):
+    #required
+    fields = {
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "password_hash": await hash_password(password),
+        "gender": gender,
+        "birth_date": birth_date,
+    }
+    
+    if any(not v for v in fields.values()):
+        raise HTTPException(status_code=400, detail="Required Fields are empty")
+    if not all(isinstance(body.get(f), str) for f in ["password", "email", "first_name", "last_name", "gender", "birth_date"]):
         raise HTTPException(status_code=400, detail="Required fields must be strings")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
     if orientation is not None and not isinstance(orientation, str):
         raise HTTPException(status_code=400, detail="orientation must be a string")
     if bio is not None and not isinstance(bio, str):
@@ -164,16 +180,12 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
         birth_date = date.fromisoformat(birth_date)  #"YYYY-MM-DD"
     except ValueError:
         raise HTTPException(status_code=400, detail="birth_date must be YYYY-MM-DD")
-    
-    fields = {
-        "username": username,       #required
-        "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
-        "password_hash": await hash_password(password),
-        "gender": gender,
-        "birth_date": birth_date,
-    }
+    today = date.today()
+
+    age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+    if age < 16:
+        raise HTTPException(status_code=400, detail="Minimum age is 16 years old")
+
 
     if orientation is not None:
         fields["orientation"] = orientation
@@ -191,11 +203,11 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     try:
         cursor = await conn.execute(f"INSERT INTO users ({columns}) VALUES ({placeholders}) RETURNING id", list(fields.values()))
     except UniqueViolation:
-        raise HTTPException(status_code=409, detail="Username or email already taken")
+        raise HTTPException(status_code=409, detail="Email already taken")
     row = await cursor.fetchone()
     user_id = row["id"]
     await conn.commit()
-    logger.info("New account registered: username='%s' id=%s", username, user_id)
+    logger.info("New account registered: email='%s' id=%s", email, user_id)
     token = generate_verification_token(str(user_id))
     send_verification_email(email, token)
     return {"message": "Account created. Check your email to verify your account."}
@@ -207,7 +219,7 @@ async def verify_email(request: Request, conn: AsyncConnection = Depends(get_db)
     if not token:   
         raise HTTPException(status_code=400, detail="Missing token")
     try:
-        user_id = serializer.loads(token, salt="email-verify", max_age=3600)  # expire après 1h
+        user_id = serializer.loads(token, salt="email-verify", max_age=3600)  # expire after 1h
     except SignatureExpired:
         raise HTTPException(status_code=400, detail="Verification link has expired")
     except BadSignature:
@@ -216,3 +228,11 @@ async def verify_email(request: Request, conn: AsyncConnection = Depends(get_db)
     await conn.execute("UPDATE users SET verified = true WHERE id = %s", (user_id,))
     await conn.commit()
     return {"message": "Email verified. You can now log in."}
+
+
+@router.get("/auth/me")
+async def verify_auth(request: Request, redis: redis.Redis = Depends(get_redis)):
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+    return {"id": user_id }
+
+
