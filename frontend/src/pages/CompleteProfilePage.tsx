@@ -1,23 +1,12 @@
 import { useState, useEffect, type SubmitEvent } from "react";
-import { register } from "../api/auth";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
-import {
-    Field,
-    SelectField,
-    GradientButton,
-    FormNotice,
-    OrDivider,
-} from "../components/FormControls";
-import GoogleAuthButton from "../components/GoogleAuthButton";
-import ErrorPopup from "../components/ErrorPopup";
+import { Field, SelectField, GradientButton, FormNotice } from "../components/FormControls";
+import { updateProfile, updateLocation } from "../api/profile";
 import registerAvatar from "../assets/register_avatar.jpg"
 
-export default function RegisterPage() {
-    const [password, setPassword] = useState('');
+export default function CompleteProfilePage() {
     const [email, setEmail] = useState('');
-    const [first_name, setFirstName] = useState('');
-    const [last_name, setLastName] = useState('');
     const [gender, setGender] = useState('');
     const [orientation, setOrientation] = useState('');
     const [bio, setBio] = useState('');
@@ -27,58 +16,51 @@ export default function RegisterPage() {
     const [city, setCity] = useState('');
 
     const [error, setError] = useState('');
-    const [info, setInfo] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
-    const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
 
     useEffect(() => {
-        if (!searchParams.get('error'))
-            return;
-        setOauthErrorOpen(true);
-        const next = new URLSearchParams(searchParams);
-        next.delete('error');
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams]);
+        fetch('/api/profile/me', { credentials: 'include' })
+            .then(async (res) => {
+                if (!res.ok) {
+                    navigate('/login');
+                    return;
+                }
+                const data = await res.json();
+                if (data.profile_complete) {
+                    navigate('/browse');
+                    return;
+                }
+                setEmail(data.email ?? '');
+            })
+            .catch(() => setError('Could not load your account. Please try again.'));
+    }, [navigate]);
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (isLoading)
             return;
         setError('');
-        setInfo('');
-        setIsLoading(true)
-        const response = await register(password,
-                                        email,
-                                        first_name,
-                                        last_name,
-                                        gender,
-                                        orientation,
-                                        bio,
-                                        birth_date,
-                                        latitude || null,
-                                        longitude || null,
-                                        city || null,
-                                    );
+        setIsLoading(true);
 
-        if (response.ok)
-        {
-            setInfo('Account Created Succesfully, Check your email to verify your account.');
-            setTimeout(() => navigate('/login'), 3000);
-            return ;
+        const response = await updateProfile({ gender, orientation, bio, birth_date, city: city || null });
+
+        if (!response.ok) {
+            setError('Could not save your profile. Please check your details and try again.');
+            setIsLoading(false);
+            return;
         }
-        else
-        {
-            try {
-                const data = await response.json();
-                setError(data.detail || 'Invalid or missing field.');
-            }
-            catch {
-                setError(`Server error (${response.status}). Please try again`);
+
+        if (latitude !== '' && longitude !== '') {
+            const locationResponse = await updateLocation(Number(latitude), Number(longitude));
+            if (!locationResponse.ok) {
+                setError('Profile saved, but we could not save your location. You can add it later.');
+                setIsLoading(false);
+                return;
             }
         }
-        setIsLoading(false);
+
+        navigate('/browse');
     }
 
     function HandleUseLocation() {
@@ -104,7 +86,6 @@ export default function RegisterPage() {
                     default:
                         setError("An unknown error occurred.");
                 }
-
             },
             {
                 timeout: 10000,
@@ -112,15 +93,13 @@ export default function RegisterPage() {
                 enableHighAccuracy: false,
             })
         }
-
     }
-
 
     return (
         <AuthLayout
-            eyebrow="Matcha · Join"
-            headline="Let's get you matched."
-            tagline="Five minutes of typing now, real conversations later. Your photo goes up once your email's confirmed."
+            eyebrow="Matcha · Almost there"
+            headline="Finish your profile."
+            tagline="You're signed in with Google. A few more details and you're ready to match."
             frontSlot={
                 <div className="flex h-full flex-col justify-between p-6">
                     <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-petal/80">
@@ -134,58 +113,13 @@ export default function RegisterPage() {
             }
         >
             <h2 className="font-display text-3xl font-medium text-plum">
-                Create your account
+                Complete your profile
             </h2>
             <p className="mt-1.5 text-sm text-plum/60">
-                Tell us a little about you.
+                {email ? `Signed in as ${email}.` : 'Just a couple more details.'}
             </p>
 
-            <div className="mt-8 flex flex-col gap-4">
-                <GoogleAuthButton label="Sign up with Google" />
-                <OrDivider />
-            </div>
-
-            <form className="mt-4 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
-                <div className="grid grid-cols-2 gap-4">
-                    <Field
-                        label="First name"
-                        id="first_name"
-                        type="text"
-                        autoComplete="given-name"
-                        value={first_name}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        required
-                    />
-                    <Field
-                        label="Last name"
-                        id="last_name"
-                        type="text"
-                        autoComplete="family-name"
-                        value={last_name}
-                        onChange={(e) => setLastName(e.target.value)}
-                        required
-                    />
-                </div>
-
-                <Field
-                    label="Email"
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                />
-                <Field
-                    label="Password"
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                />
-
+            <form className="mt-8 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
                 <div className="grid grid-cols-2 gap-4">
                     <SelectField
                         label="Gender"
@@ -252,33 +186,19 @@ export default function RegisterPage() {
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
                     />
-                    {latitude && longitude && (
+                    {latitude !== '' && longitude !== '' && (
                         <p className="mt-1.5 text-xs text-plum/50">
                             Location detected ({Number(latitude).toFixed(2)}, {Number(longitude).toFixed(2)})
                         </p>
                     )}
                 </div>
 
-                <FormNotice tone="info">{info}</FormNotice>
                 <FormNotice tone="error">{error}</FormNotice>
 
                 <GradientButton type="submit" disabled={isLoading} className="mt-2">
-                    {isLoading ? 'Creating account…' : 'Create account'}
+                    {isLoading ? 'Saving…' : 'Finish setting up'}
                 </GradientButton>
             </form>
-
-            <p className="mt-8 text-center text-sm text-plum/60">
-                Already on Matcha?{" "}
-                <Link to="/login" className="font-medium text-orchid hover:underline">
-                    Log in
-                </Link>
-            </p>
-
-            <ErrorPopup
-                open={oauthErrorOpen}
-                onOpenChange={setOauthErrorOpen}
-                message="We couldn't sign you up with Google. Please try again or register with your email and password."
-            />
         </AuthLayout>
     );
 }

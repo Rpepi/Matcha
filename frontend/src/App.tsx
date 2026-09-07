@@ -5,6 +5,7 @@ import BrowsePage from "./pages/BrowsePage";
 import ChatPage from "./pages/ChatPage";
 import ProfilePage from "./pages/ProfilePage";
 import RegisterPage from "./pages/RegisterPage";
+import CompleteProfilePage from "./pages/CompleteProfilePage";
 import UserPage from "./pages/UserPage";
 import VerifyPage from "./pages/VerifyPage"
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -16,6 +17,7 @@ function App() {
                 <Route path="/browse" element={<ProtectedRoute><BrowsePage /></ProtectedRoute>} />
                 <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                <Route path="/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
                 <Route path="/users/:id" element={<ProtectedRoute><UserPage /></ProtectedRoute>} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/verify" element={<VerifyPage />} />
