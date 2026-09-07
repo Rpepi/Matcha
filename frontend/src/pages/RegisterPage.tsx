@@ -1,15 +1,17 @@
-import { useState,  type SubmitEvent } from "react";
+import { useState, useEffect, type SubmitEvent } from "react";
 import { register } from "../api/auth";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
 import {
     Field,
     SelectField,
     GradientButton,
     FormNotice,
+    OrDivider,
 } from "../components/FormControls";
+import GoogleAuthButton from "../components/GoogleAuthButton";
+import ErrorPopup from "../components/ErrorPopup";
 import registerAvatar from "../assets/register_avatar.jpg"
-import alessandro from "../assets/alessandro.png"
 
 export default function RegisterPage() {
     const [password, setPassword] = useState('');
@@ -27,7 +29,33 @@ export default function RegisterPage() {
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isOAuthPrefill, setIsOAuthPrefill] = useState(false);
+    const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
+    const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const oauthEmail = searchParams.get('email');
+        const oauthPassword = searchParams.get('password');
+        const oauthFirstName = searchParams.get('first_name');
+        const oauthLastName = searchParams.get('last_name');
+        const oauthError = searchParams.get('error');
+
+        if (!oauthEmail && !oauthPassword && !oauthError)
+            return;
+
+        if (oauthEmail && oauthPassword) {
+            setEmail(oauthEmail);
+            setPassword(oauthPassword);
+            if (oauthFirstName) setFirstName(oauthFirstName);
+            if (oauthLastName) setLastName(oauthLastName);
+            setIsOAuthPrefill(true);
+        }
+        if (oauthError)
+            setOauthErrorOpen(true);
+
+        setSearchParams(new URLSearchParams(), { replace: true });
+    }, [searchParams, setSearchParams]);
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -127,7 +155,19 @@ export default function RegisterPage() {
                 Tell us a little about you.
             </p>
 
-            <form className="mt-8 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
+            {!isOAuthPrefill && (
+                <div className="mt-8 flex flex-col gap-4">
+                    <GoogleAuthButton label="Sign up with Google" />
+                    <OrDivider />
+                </div>
+            )}
+
+            <form className={`${isOAuthPrefill ? "mt-8" : "mt-4"} flex flex-col gap-4`} onSubmit={HandleSubmit} noValidate>
+                {isOAuthPrefill && (
+                    <FormNotice tone="info">
+                        Signed in with Google. Finish the fields below to complete your profile.
+                    </FormNotice>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                     <Field
                         label="First name"
@@ -156,17 +196,20 @@ export default function RegisterPage() {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    disabled={isOAuthPrefill}
                     required
                 />
-                <Field
-                    label="Password"
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                />
+                {!isOAuthPrefill && (
+                    <Field
+                        label="Password"
+                        id="password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                    />
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                     <SelectField
@@ -255,6 +298,12 @@ export default function RegisterPage() {
                     Log in
                 </Link>
             </p>
+
+            <ErrorPopup
+                open={oauthErrorOpen}
+                onOpenChange={setOauthErrorOpen}
+                message="We couldn't sign you up with Google. Please try again or register with your email and password."
+            />
         </AuthLayout>
     );
 }

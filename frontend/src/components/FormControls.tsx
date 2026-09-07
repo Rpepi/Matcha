@@ -53,6 +53,16 @@ export function GradientButton({ children, className = "", ...props }: GradientB
     );
 }
 
+export function OrDivider({ label = "or" }: { label?: string }) {
+    return (
+        <div className="flex items-center gap-3 text-xs font-medium text-plum/40">
+            <span className="h-px flex-1 bg-plum/10" />
+            {label}
+            <span className="h-px flex-1 bg-plum/10" />
+        </div>
+    );
+}
+
 interface FormNoticeProps {
     tone?: "error" | "info"
     children?: ReactNode

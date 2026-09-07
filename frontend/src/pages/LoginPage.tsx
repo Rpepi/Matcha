@@ -1,14 +1,18 @@
-import { useState, type SubmitEvent } from "react";
+import { useState, useEffect, type SubmitEvent } from "react";
 import { login } from "../api/auth";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
-import { Field, GradientButton, FormNotice } from "../components/FormControls";
+import { Field, GradientButton, FormNotice, OrDivider } from "../components/FormControls";
+import GoogleAuthButton from "../components/GoogleAuthButton";
+import ErrorPopup from "../components/ErrorPopup";
 import LoginAvatar from "../assets/login_avatar.jpg"
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('')
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
     const navigate = useNavigate()
     let loginPossible = false
 
@@ -17,6 +21,14 @@ export default function LoginPage() {
     else
         loginPossible = false;
 
+    useEffect(() => {
+        if (!searchParams.get('error'))
+            return;
+        setOauthErrorOpen(true);
+        const next = new URLSearchParams(searchParams);
+        next.delete('error');
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams]);
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -52,7 +64,12 @@ export default function LoginPage() {
                 Welcome back to your matches.
             </p>
 
-            <form className="mt-8 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
+            <div className="mt-8 flex flex-col gap-4">
+                <GoogleAuthButton label="Log in with Google" />
+                <OrDivider />
+            </div>
+
+            <form className="mt-4 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
                 <Field
                     label="Email"
                     id="email"
@@ -87,6 +104,12 @@ export default function LoginPage() {
                     Register now
                 </Link>
             </p>
+
+            <ErrorPopup
+                open={oauthErrorOpen}
+                onOpenChange={setOauthErrorOpen}
+                message="We couldn't sign you in with Google. Please try again or use your email and password."
+            />
         </AuthLayout>
     );
 }
