@@ -14,8 +14,11 @@ from app.routes.profile import router as profile_router
 from app.routes.users import router as users_router
 from app.routes.chat import router as chat_router
 from app.routes.notifications import router as notifications_router
+from app.routes.oauth import router as oauth_router
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+if not REDIS_PASSWORD:
+    raise RuntimeError("env variable REDIS_PASSWORD not set")
 
 retry = Retry(FullJitterBackoff(), 3, (RedisConnectionError, RedisTimeoutError))
 
@@ -30,13 +33,9 @@ async def lifespan(app: FastAPI):
         password=REDIS_PASSWORD,
         retry=retry
     )
-
     yield
-
     await close_pool()
     await app.state.redis.aclose()
-
-
 
 
 def create_app() -> FastAPI:
@@ -58,5 +57,6 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(chat_router)
     app.include_router(notifications_router)
+    app.include_router(oauth_router)
 
     return app

@@ -20,7 +20,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
-        SELECT id, username, email, first_name, last_name,
+        SELECT id, email, first_name, last_name,
         gender, orientation, bio, birth_date, fame_rating,
         latitude, longitude, city, is_online, last_seen,
         profile_complete, created_at FROM users WHERE id = %s
@@ -91,11 +91,9 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     except HTTPException:
         raise
     except UniqueViolation:
-        await conn.rollback()
-        raise HTTPException(status_code=409, detail="Username or email already taken")
+        raise HTTPException(status_code=409, detail="Email already taken")
     except Exception:
         logger.exception("Failed to update profile for user %s", user_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="failed to update profile")
 
     if email_changed:
@@ -186,11 +184,9 @@ async def put_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
         await _replace_tags(conn, user_id, tags)
         await conn.commit()
     except HTTPException:
-        await conn.rollback()
         raise
     except Exception:
         logger.exception("Failed to update tags for user %s", user_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="failed to update tags")
 
     return {"message": "tags updated"}
@@ -292,11 +288,9 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             )
         await conn.commit()
     except HTTPException:
-        await conn.rollback()
         raise
     except Exception:
         logger.exception("Photo upload failed for user %s", user_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="upload failed")
 
     return {"message": f"{len(photos)} photo(s) uploaded"}
@@ -334,7 +328,6 @@ async def delete_photo(position: int, request: Request, redis: Redis = Depends(g
         await conn.commit()
     except Exception:
         logger.exception("Photo delete failed for user %s position %s", user_id, position)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="delete failed")
 
     try:
@@ -379,7 +372,6 @@ async def move_photo(position: int, request: Request, redis: Redis = Depends(get
         await conn.commit()
     except Exception:
         logger.exception("Photo move failed for user %s position %s→%s", user_id, position, target)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="move failed")
 
     return {"message": f"photo moved from position {position} to {target}"}

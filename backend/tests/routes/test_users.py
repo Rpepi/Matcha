@@ -10,14 +10,14 @@ ME_ROW = {
 }
 
 BROWSE_ROW = {
-    "id": 2, "username": "bob", "first_name": "Bob", "last_name": "Smith",
+    "id": 2, "first_name": "Bob", "last_name": "Smith",
     "gender": "female", "bio": "hey", "birth_date": date(1997, 3, 10),
     "fame_rating": 5, "city": "Lyon", "is_online": False, "last_seen": None,
     "age": 27, "distance_km": 400, "common_tags": 2, "score": 45.0, "photo": None,
 }
 
 USER_ROW = {
-    "id": 2, "username": "bob", "first_name": "Bob", "last_name": "Smith",
+    "id": 2, "first_name": "Bob", "last_name": "Smith",
     "gender": "male", "orientation": "heterosexual", "bio": "hey",
     "birth_date": "1995-06-15", "fame_rating": 10, "city": "Lyon",
     "is_online": False, "last_seen": None,
@@ -94,7 +94,7 @@ class TestBrowseUsers:
         assert res.status_code == 200
         data = res.json()
         assert isinstance(data, list)
-        assert data[0]["username"] == "bob"
+        assert data[0]["first_name"] == "Bob"
         assert "distance_km" in data[0]
         assert "common_tags" in data[0]
         assert "score" in data[0]
@@ -177,7 +177,7 @@ class TestGetUserProfile:
         res = await auth_client.get("/users/2")
         assert res.status_code == 200
         data = res.json()
-        assert data["username"] == "bob"
+        assert data["first_name"] == "Bob"
         assert "email" not in data
         assert "password_hash" not in data
         assert len(data["photos"]) == 1

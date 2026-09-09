@@ -17,7 +17,7 @@ router = APIRouter()
 
 async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
     cursor = await conn.execute("""
-        SELECT id, username, first_name, last_name, gender, orientation,
+        SELECT id, first_name, last_name, gender, orientation,
             bio, birth_date, fame_rating, city, is_online, last_seen
         FROM users WHERE id = %s
     """, (user_id,))
@@ -154,7 +154,7 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
 
     query = f"""
         SELECT
-            u.id, u.username, u.first_name, u.last_name, u.gender,
+            u.id, u.first_name, u.last_name, u.gender,
             u.bio, u.birth_date, u.fame_rating, u.city, u.is_online, u.last_seen,
             DATE_PART('year', AGE(u.birth_date))::int                                AS age,
             ROUND(earth_distance(
@@ -293,7 +293,6 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
         await conn.commit()
     except Exception:
         logger.exception("Like failed: user %s → target %s", user_id, target_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="like failed")
 
     return {"message": "match" if is_match else "liked"}
@@ -315,11 +314,9 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
         await _recalculate_fame(conn, str(target_id))
         await conn.commit()
     except HTTPException:
-        await conn.rollback()
         raise
     except Exception:
         logger.exception("Unlike failed: user %s → target %s", user_id, target_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="unlike failed")
 
     return {"message": "unliked"}
@@ -350,7 +347,6 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
         await conn.commit()
     except Exception:
         logger.exception("Block failed: user %s → target %s", user_id, target_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="block failed")
 
     return {"message": "user blocked"}
@@ -370,11 +366,9 @@ async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(
 
         await conn.commit()
     except HTTPException:
-        await conn.rollback()
         raise
     except Exception:
         logger.exception("Unblock failed: user %s → target %s", user_id, target_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="unblock failed")
 
     return {"message": "user unblocked"}
@@ -407,7 +401,6 @@ async def report_user(target_id: int, request: Request, redis: Redis = Depends(g
         await conn.commit()
     except Exception:
         logger.exception("Report failed: user %s → target %s", user_id, target_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="report failed")
 
     if already_reported:

@@ -74,6 +74,7 @@ async def chat_setup(websocket: WebSocket, target_id: int):
                 data = await websocket.receive_json()
                 msg = await save_message(conn, sender_id, target_id, data["content"])
                 await _notify(conn, target_id, sender_id, "message", redis)
+                await conn.commit()
                 await redis.publish(room_id, json.dumps(msg))
         except WebSocketDisconnect:
             pass
