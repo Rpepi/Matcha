@@ -15,6 +15,9 @@ PROFILE_ROW = {
 }
 
 
+INCOMPLETE_PROFILE_ROW = {"gender": None, "birth_date": None, "city": None, "latitude": None, "longitude": None}
+
+
 def make_cursor(fetchone=None, fetchall=None):
     c = AsyncMock()
     c.fetchone = AsyncMock(return_value=fetchone)
@@ -72,7 +75,10 @@ class TestGetProfileMe:
 class TestPutProfileMe:
     async def test_update_bio(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor())
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
 
         res = await auth_client.put("/profile/me", json={"bio": "new bio"})
         assert res.status_code == 200
@@ -88,14 +94,22 @@ class TestPutProfileMe:
 
     async def test_update_bio_and_tags(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+
+        def side_effect(sql, params=None):
+            if "gender" in sql and "SELECT" in sql:
+                return make_cursor(fetchone=INCOMPLETE_PROFILE_ROW)
+            return make_cursor(fetchone={"id": 1})
+        mock_db.execute = AsyncMock(side_effect=side_effect)
 
         res = await auth_client.put("/profile/me", json={"bio": "updated", "tags": ["sport"]})
         assert res.status_code == 200
 
     async def test_update_first_and_last_name(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor())
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
 
         res = await auth_client.put("/profile/me", json={"first_name": "Bob", "last_name": "Jones"})
         assert res.status_code == 200
@@ -113,7 +127,10 @@ class TestPutProfileMe:
 
     async def test_update_email_resets_verified_and_sends_email(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor())
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
 
         with patch("app.routes.profile.generate_verification_token", return_value="tok123") as mock_token, \
              patch("app.routes.profile.send_verification_email") as mock_send:
@@ -123,7 +140,7 @@ class TestPutProfileMe:
         mock_token.assert_called_once_with("1")
         mock_send.assert_called_once_with("new@test.com", "tok123")
 
-        executed_sql = mock_db.execute.call_args[0][0]
+        executed_sql = mock_db.execute.call_args_list[-1][0][0]
         assert "verified" in executed_sql
 
     async def test_empty_email_returns_400(self, auth_client, mock_redis):
@@ -183,7 +200,10 @@ class TestPutProfileMe:
 class TestPutProfileLocation:
     async def test_valid_coordinates(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor())
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={"gender": None, "birth_date": None}),
+            make_cursor(),
+        ])
 
         res = await auth_client.put("/profile/location", json={"latitude": 48.8566, "longitude": 2.3522})
         assert res.status_code == 200
@@ -217,7 +237,10 @@ class TestPutProfileLocation:
 
     async def test_boundary_coordinates_accepted(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor())
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={"gender": None, "birth_date": None}),
+            make_cursor(),
+        ])
 
         res = await auth_client.put("/profile/location", json={"latitude": -90.0, "longitude": 180.0})
         assert res.status_code == 200

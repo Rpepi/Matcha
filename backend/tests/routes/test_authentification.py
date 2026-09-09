@@ -29,9 +29,6 @@ VALID_REGISTER_BODY = {
     "email": "alice@test.com",
     "first_name": "Alice",
     "last_name": "Smith",
-    "gender": "female",
-    "birth_date": "1995-06-15",
-    "city": "Paris",
 }
 
 
@@ -220,7 +217,7 @@ class TestRegisterRoute:
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("missing_field", [
-        "password", "email", "first_name", "last_name", "gender", "birth_date"
+        "password", "email", "first_name", "last_name"
     ])
     async def test_missing_required_field_returns_400(self, client, missing_field):
         body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != missing_field}
@@ -229,51 +226,6 @@ class TestRegisterRoute:
 
     async def test_non_string_required_field_returns_400(self, client):
         body = {**VALID_REGISTER_BODY, "first_name": 123}
-        resp = await client.post("/auth/register", json=body)
-        assert resp.status_code == 400
-
-    async def test_invalid_birth_date_format_returns_400(self, client):
-        body = {**VALID_REGISTER_BODY, "birth_date": "15/06/1995"}
-        resp = await client.post("/auth/register", json=body)
-        assert resp.status_code == 400
-
-    async def test_no_location_returns_400(self, client):
-        body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != "city"}
-        resp = await client.post("/auth/register", json=body)
-        assert resp.status_code == 400
-
-    async def test_gps_coordinates_accepted_without_city(self, client, mock_cursor):
-        mock_cursor.fetchone = AsyncMock(return_value={"id": 42})
-        body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != "city"}
-        body["latitude"] = 48.8566
-        body["longitude"] = 2.3522
-
-        with patch("app.routes.authentification.send_verification_email"):
-            resp = await client.post("/auth/register", json=body)
-
-        assert resp.status_code == 200
-
-    async def test_invalid_gps_range_returns_400(self, client):
-        body = {**VALID_REGISTER_BODY, "latitude": 999, "longitude": 999}
-        resp = await client.post("/auth/register", json=body)
-        assert resp.status_code == 400
-
-    async def test_non_number_gps_returns_400(self, client):
-        body = {**VALID_REGISTER_BODY, "latitude": "nord", "longitude": "est"}
-        resp = await client.post("/auth/register", json=body)
-        assert resp.status_code == 400
-
-    async def test_optional_orientation_not_required(self, client, mock_cursor):
-        mock_cursor.fetchone = AsyncMock(return_value={"id": 42})
-        body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != "orientation"}
-
-        with patch("app.routes.authentification.send_verification_email"):
-            resp = await client.post("/auth/register", json=body)
-
-        assert resp.status_code == 200
-
-    async def test_non_string_orientation_returns_400(self, client):
-        body = {**VALID_REGISTER_BODY, "orientation": 42}
         resp = await client.post("/auth/register", json=body)
         assert resp.status_code == 400
 

@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from itsdangerous import SignatureExpired, BadSignature
-from datetime import date, datetime
 import redis.asyncio as redis
 from redis import Redis
 from app.db.dependencies import get_db
@@ -133,13 +132,6 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
         email = body["email"]
         first_name = body["first_name"]
         last_name = body["last_name"]
-        gender = body["gender"]
-        orientation = body.get("orientation")
-        bio = body.get("bio")
-        birth_date = body["birth_date"]
-        latitude = body.get("latitude")
-        longitude = body.get("longitude")
-        city = body.get("city")
     except Exception:
         raise HTTPException(status_code=400, detail="Required Fields are empty")
 
@@ -149,55 +141,15 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
         "first_name": first_name,
         "last_name": last_name,
         "password_hash": await hash_password(password),
-        "gender": gender,
-        "birth_date": birth_date,
     }
-    
+
     if any(not v for v in fields.values()):
         raise HTTPException(status_code=400, detail="Required Fields are empty")
-    if not all(isinstance(body.get(f), str) for f in ["password", "email", "first_name", "last_name", "gender", "birth_date"]):
+    if not all(isinstance(body.get(f), str) for f in ["password", "email", "first_name", "last_name"]):
         raise HTTPException(status_code=400, detail="Required fields must be strings")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(status_code=400, detail="Invalid email format")
-    if orientation is not None and not isinstance(orientation, str):
-        raise HTTPException(status_code=400, detail="orientation must be a string")
-    if bio is not None and not isinstance(bio, str):
-        raise HTTPException(status_code=400, detail="bio must be a string")
-    
-    has_gps = latitude is not None and longitude is not None
-    has_city = city is not None   
-    if not has_gps and not has_city:
-        raise HTTPException(status_code=400, detail="Location is required: provide GPS coordinates or a city")
-    if has_gps:
-        if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
-            raise HTTPException(status_code=400, detail="latitude and longitude must be numbers")
-        if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-            raise HTTPException(status_code=400, detail="Invalid GPS coordinates")
-    if has_city and not isinstance(city, str):
-        raise HTTPException(status_code=400, detail="city must be a string")
-    
-    try:
-        birth_date = date.fromisoformat(birth_date)  #"YYYY-MM-DD"
-    except ValueError:
-        raise HTTPException(status_code=400, detail="birth_date must be YYYY-MM-DD")
-    today = date.today()
 
-    age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
-    if age < 16:
-        raise HTTPException(status_code=400, detail="Minimum age is 16 years old")
-
-
-    if orientation is not None:
-        fields["orientation"] = orientation
-    if bio is not None:
-        fields["bio"] = bio
-    if latitude is not None:
-        fields["latitude"] = latitude
-    if longitude is not None:
-        fields["longitude"] = longitude
-    if city is not None:
-        fields["city"] = city
-    
     columns = ", ".join(fields.keys())
     placeholders = ", ".join(["%s"] * len(fields))
     try:

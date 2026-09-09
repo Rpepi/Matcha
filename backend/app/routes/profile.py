@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from fastapi import APIRouter, Depends, Response, Request, HTTPException, UploadFile
 from psycopg import AsyncConnection
 from redis import Redis
@@ -52,7 +53,7 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    updatable_fields = ["bio", "orientation", "city", "first_name", "last_name", "email"]
+    updatable_fields = ["bio", "orientation", "city", "first_name", "last_name", "email", "gender", "birth_date"]
     tags = body.get("tags")
     updates = {k: body[k] for k in updatable_fields if k in body}
 
@@ -68,6 +69,22 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             if len(value) > max_length:
                 raise HTTPException(status_code=400, detail=f"{field} must be at most {max_length} characters")
 
+    if "gender" in updates and not isinstance(updates["gender"], str):
+        raise HTTPException(status_code=400, detail="gender must be a string")
+
+    if "birth_date" in updates:
+        if not isinstance(updates["birth_date"], str):
+            raise HTTPException(status_code=400, detail="birth_date must be a string")
+        try:
+            birth_date = date.fromisoformat(updates["birth_date"])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="birth_date must be YYYY-MM-DD")
+        today = date.today()
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        if age < 16:
+            raise HTTPException(status_code=400, detail="Minimum age is 16 years old")
+        updates["birth_date"] = birth_date
+
     email_changed = "email" in updates
 
     if tags is not None:
@@ -75,6 +92,22 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 
     try:
         if updates:
+            cursor = await conn.execute(
+                "SELECT gender, birth_date, city, latitude, longitude FROM users WHERE id = %s",
+                (user_id,)
+            )
+            current = await cursor.fetchone()
+
+            effective_gender = updates.get("gender", current["gender"])
+            effective_birth_date = updates.get("birth_date", current["birth_date"])
+            effective_city = updates.get("city", current["city"])
+            has_location = effective_city is not None or (
+                current["latitude"] is not None and current["longitude"] is not None
+            )
+
+            if effective_gender and effective_birth_date and has_location:
+                updates["profile_complete"] = True
+
             if email_changed:
                 updates["verified"] = False
             set_clause = ", ".join(f"{k} = %s" for k in updates.keys())
@@ -120,14 +153,26 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
         raise HTTPException(status_code=400, detail="Invalid GPS coordinates")
 
     try:
+        cursor = await conn.execute(
+            "SELECT gender, birth_date FROM users WHERE id = %s", (user_id,)
+        )
+        current = await cursor.fetchone()
+
+        # This endpoint sets the GPS coordinates itself, so location is
+        # satisfied by definition — only gender/birth_date still need checking.
+        set_clause = "latitude = %s, longitude = %s"
+        values = [latitude, longitude]
+        if current["gender"] and current["birth_date"]:
+            set_clause += ", profile_complete = %s"
+            values.append(True)
+
         await conn.execute(
-            "UPDATE users SET latitude = %s, longitude = %s WHERE id = %s",
-            (latitude, longitude, user_id)
+            f"UPDATE users SET {set_clause} WHERE id = %s",
+            values + [user_id]
         )
         await conn.commit()
     except Exception:
         logger.exception("Failed to update location for user %s", user_id)
-        await conn.rollback()
         raise HTTPException(status_code=500, detail="Failed to update location")
 
     return {"message": "Location updated"}
