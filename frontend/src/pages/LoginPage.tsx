@@ -33,8 +33,10 @@ export default function LoginPage() {
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
         const response = await login(email, password)
-        if (response.ok)
-            navigate('/browse')
+        if (response.ok) {
+            const data = await response.json();
+            navigate(data.profile_complete ? '/browse' : '/complete-profile');
+        }
         else
             setError('Invalid email or password')
     }
