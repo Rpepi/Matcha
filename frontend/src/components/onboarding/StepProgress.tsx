@@ -7,7 +7,7 @@ export default function StepProgress({ step }: { step: number }) {
                 <span
                     key={i}
                     className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                        i <= step ? "bg-gradient-to-r from-garnet to-orchid" : "bg-plum/10"
+                        i <= step ? "bg-gradient-to-r from-pink to-orchid" : "bg-ink/10"
                     }`}
                 />
             ))}

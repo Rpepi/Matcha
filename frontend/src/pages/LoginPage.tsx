@@ -42,8 +42,8 @@ export default function LoginPage() {
 
     return (
         <AuthLayout>
-            <h2 className="font-display text-3xl font-medium text-plum">Log in</h2>
-            <p className="mt-1.5 text-sm text-plum/60">
+            <h2 className="font-display text-3xl font-medium text-ink">Log in</h2>
+            <p className="mt-1.5 text-sm text-ink/60">
                 Welcome back to your matches.
             </p>
 
@@ -81,9 +81,9 @@ export default function LoginPage() {
                 </Button>
             </form>
 
-            <p className="mt-8 text-center text-sm text-plum/60">
+            <p className="mt-8 text-center text-sm text-ink/60">
                 Not a member?{" "}
-                <Link to="/register" className="font-medium text-orchid hover:underline">
+                <Link to="/register" className="font-medium text-matcha hover:underline">
                     Register now
                 </Link>
             </p>

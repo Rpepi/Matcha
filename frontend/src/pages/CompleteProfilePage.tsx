@@ -35,10 +35,10 @@ export default function CompleteProfilePage() {
 
     return (
         <AuthLayout>
-            <h2 className="font-display text-2xl font-medium text-plum">
+            <h2 className="font-display text-2xl font-medium text-ink">
                 {firstName ? `Welcome, ${firstName}.` : "Let's finish setting you up."}
             </h2>
-            <p className="mt-1.5 mb-6 text-sm text-plum/60">
+            <p className="mt-1.5 mb-6 text-sm text-ink/60">
                 A handful of quick questions, then you're ready to start matching.
             </p>
 
