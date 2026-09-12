@@ -41,22 +41,7 @@ export default function LoginPage() {
     }
 
     return (
-        <AuthLayout
-            eyebrow="Matcha · Sign in"
-            headline="Good, you're back."
-            tagline="Someone out there is one match away from becoming a very long conversation."
-            frontSlot={
-                <div className="flex h-full flex-col justify-between p-6">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-petal/80">
-                        <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
-                        Active nearby
-                    </span>
-                    <p className="font-display text-xl italic text-petal/90">
-                        
-                    </p>
-                </div>
-            }
-        >
+        <AuthLayout>
             <h2 className="font-display text-3xl font-medium text-plum">Log in</h2>
             <p className="mt-1.5 text-sm text-plum/60">
                 Welcome back to your matches.

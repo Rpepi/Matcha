@@ -1,28 +1,11 @@
 import { Link } from "react-router-dom";
 import { GradientButton } from "../components/FormControls";
+import Header from "../components/Header";
 
 export default function LandingPage() {
     return (
         <div className="flex min-h-screen flex-col bg-ink font-sans text-petal">
-            <header className="flex items-center justify-between px-6 py-6 sm:px-10">
-                <span className="font-display text-xl font-medium tracking-tight">
-                    matcha
-                </span>
-                <nav className="flex items-center gap-5">
-                    <Link
-                        to="/login"
-                        className="text-sm font-medium text-petal/70 transition hover:text-petal"
-                    >
-                        Log in
-                    </Link>
-                    <Link
-                        to="/register"
-                        className="rounded-full bg-gradient-to-r from-garnet to-orchid px-4 py-2 text-sm font-medium text-petal shadow-lg shadow-garnet/25 transition hover:brightness-110"
-                    >
-                        Create an account
-                    </Link>
-                </nav>
-            </header>
+            <Header variant="landing" />
 
             <main className="flex-1">
                 <section className="mx-auto flex max-w-6xl flex-col items-center gap-14 px-6 py-14 sm:px-10 lg:flex-row lg:items-center lg:justify-between lg:py-24">

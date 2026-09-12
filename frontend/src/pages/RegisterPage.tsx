@@ -62,19 +62,7 @@ export default function RegisterPage() {
     }
 
     return (
-        <AuthLayout
-            eyebrow="Matcha · Join"
-            headline="Let's get you matched."
-            tagline="Thirty seconds to sign up. We'll walk you through the rest once you've confirmed your email."
-            frontSlot={
-                <div className="flex h-full flex-col justify-between p-6">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-petal/80">
-                        <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
-                        Active nearby
-                    </span>
-                </div>
-            }
-        >
+        <AuthLayout>
             <h2 className="font-display text-3xl font-medium text-plum">
                 Create your account
             </h2>
