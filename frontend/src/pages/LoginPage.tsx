@@ -5,7 +5,6 @@ import AuthLayout from "../components/AuthLayout";
 import { Field, GradientButton, FormNotice, OrDivider } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 import ErrorPopup from "../components/ErrorPopup";
-import LoginAvatar from "../assets/login_avatar.jpg"
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -52,9 +51,6 @@ export default function LoginPage() {
                         <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
                         Active nearby
                     </span>
-                    <div className="my-4 ml-4 flex-1 min-h-0 overflow-hidden rounded-lg">
-                        <img className="rounded-lg object-center" src={LoginAvatar} />
-                    </div>
                     <p className="font-display text-xl italic text-petal/90">
                         
                     </p>
