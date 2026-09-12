@@ -23,19 +23,12 @@ export function useOnboarding() {
     useEffect(() => {
         fetch('/api/profile/me', { credentials: 'include' })
             .then(async (res) => {
-                if (!res.ok) {
-                    navigate('/login');
-                    return;
-                }
+                if (!res.ok) return;
                 const data = await res.json();
-                if (data.profile_complete) {
-                    navigate('/browse');
-                    return;
-                }
                 setFirstName(data.first_name ?? '');
             })
             .catch(() => setError('Could not load your account. Please try again.'));
-    }, [navigate]);
+    }, []);
 
     function goNext() {
         setError('');

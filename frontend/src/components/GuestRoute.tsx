@@ -2,12 +2,12 @@ import type { ReactNode } from "react"
 import { Navigate } from "react-router-dom"
 import { useAuthStatus } from "../hooks/useAuthStatus"
 
-export default function ProtectedRoute({ children }: { children: ReactNode })
+export default function GuestRoute({ children }: { children: ReactNode })
 {
     const status = useAuthStatus()
 
-    if (status === 'loading') return <p>Loading...</p>
-    if (status === 'guest') return <Navigate to="/login" />
+    if (status === 'loading') return null
     if (status === 'incomplete') return <Navigate to="/complete-profile" />
+    if (status === 'complete') return <Navigate to="/browse" />
     return children
 }
