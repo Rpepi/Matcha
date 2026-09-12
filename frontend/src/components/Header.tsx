@@ -21,7 +21,7 @@ export default function Header({ variant }: HeaderProps) {
             </Link>
 
             {isLanding ? (
-                <nav className="flex items-center gap-5">
+                <nav className="hidden items-center gap-5 sm:flex">
                     <Link
                         to="/login"
                         className="text-sm font-medium transition"
