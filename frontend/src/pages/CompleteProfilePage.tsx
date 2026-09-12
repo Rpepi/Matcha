@@ -11,7 +11,6 @@ import LocationStep from "../components/onboarding/steps/LocationStep";
 export default function CompleteProfilePage() {
     const {
         step,
-        firstName,
         gender,
         setGender,
         orientation,
@@ -35,64 +34,66 @@ export default function CompleteProfilePage() {
 
     return (
         <AuthLayout>
-            <h2 className="font-display text-2xl font-medium text-ink">
-                {firstName ? `Welcome, ${firstName}.` : "Let's finish setting you up."}
-            </h2>
-            <p className="mt-1.5 mb-6 text-sm text-ink/60">
-                A handful of quick questions, then you're ready to start matching.
-            </p>
 
             <StepProgress step={step} />
 
-            <div className="overflow-hidden">
-                <div
-                    className="flex transition-transform duration-300 ease-in-out motion-reduce:transition-none"
-                    style={{ transform: `translateX(-${step * 100}%)` }}
-                >
-                    <GenderStep
-                        isActive={step === 0}
-                        gender={gender}
-                        setGender={setGender}
-                        onNext={goNext}
-                    />
+            {step === 0 && (
+                <GenderStep
+                    key={step}
+                    isActive
+                    gender={gender}
+                    setGender={setGender}
+                    onNext={goNext}
+                />
+            )}
 
-                    <OrientationStep
-                        isActive={step === 1}
-                        orientation={orientation}
-                        setOrientation={setOrientation}
-                        onBack={goBack}
-                        onNext={goNext}
-                    />
+            {step === 1 && (
+                <OrientationStep
+                    key={step}
+                    isActive
+                    orientation={orientation}
+                    setOrientation={setOrientation}
+                    onBack={goBack}
+                    onNext={goNext}
+                />
+            )}
 
-                    <BioStep
-                        isActive={step === 2}
-                        bio={bio}
-                        setBio={setBio}
-                        onBack={goBack}
-                        onNext={goNext}
-                    />
+            {step === 2 && (
+                <BioStep
+                    key={step}
+                    isActive
+                    bio={bio}
+                    setBio={setBio}
+                    onBack={goBack}
+                    onNext={goNext}
+                />
+            )}
 
-                    <BirthdateStep
-                        isActive={step === 3}
-                        birth_date={birth_date}
-                        setBirthDate={setBirthDate}
-                        onBack={goBack}
-                        onNext={handleBirthdateNext}
-                    />
+            {step === 3 && (
+                <BirthdateStep
+                    key={step}
+                    isActive
+                    birth_date={birth_date}
+                    setBirthDate={setBirthDate}
+                    onBack={goBack}
+                    onNext={handleBirthdateNext}
+                />
+            )}
 
-                    <LocationStep
-                        isActive={step === 4}
-                        city={city}
-                        setCity={setCity}
-                        latitude={latitude}
-                        longitude={longitude}
-                        onUseLocation={HandleUseLocation}
-                        onBack={goBack}
-                        onNext={handleFinish}
-                        isLoading={isLoading}
-                    />
-                </div>
-            </div>
+            {step === 4 && (
+                <LocationStep
+                    key={step}
+                    isActive
+                    city={city}
+                    setCity={setCity}
+                    latitude={latitude}
+                    longitude={longitude}
+                    onUseLocation={HandleUseLocation}
+                    onBack={goBack}
+                    onNext={handleFinish}
+                    isLoading={isLoading}
+                />
+            )}
 
             <div className="mt-4">
                 <FormNotice tone="error">{error}</FormNotice>
