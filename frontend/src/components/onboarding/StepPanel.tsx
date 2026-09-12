@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { GradientButton } from "../FormControls";
+import { Button } from "../FormControls";
 
 interface StepPanelProps {
     title: string;
@@ -31,14 +31,14 @@ export default function StepPanel({ title, subtitle, children, onBack, onNext, n
                         Back
                     </button>
                 )}
-                <GradientButton
+                <Button
                     type="button"
                     onClick={onNext}
                     disabled={nextDisabled || isLoading}
                     className="flex-1"
                 >
                     {isLoading ? "Saving…" : nextLabel}
-                </GradientButton>
+                </Button>
             </div>
         </div>
     );

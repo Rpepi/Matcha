@@ -1,5 +1,5 @@
 import { Dialog } from "@base-ui/react/dialog";
-import { GradientButton } from "./FormControls";
+import { Button } from "./FormControls";
 
 interface ErrorPopupProps {
     open: boolean;
@@ -24,7 +24,7 @@ export default function ErrorPopup({ open, onOpenChange, message }: ErrorPopupPr
                     </Dialog.Description>
                     <Dialog.Close
                         render={
-                            <GradientButton className="mt-6" type="button" />
+                            <Button className="mt-6" type="button" />
                         }
                     >
                         Got it

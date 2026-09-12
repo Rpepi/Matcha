@@ -40,15 +40,17 @@ export function SelectField({ label, id, className = "", children, ...props }: S
     );
 }
 
-type GradientButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 
-export function GradientButton({ children, className = "", ...props }: GradientButtonProps) {
+export function Button({ children, className = "", ...props }: ButtonProps) {
     return (
         <button
-            className={`w-full rounded-xl bg-gradient-to-r from-garnet to-orchid px-4 py-2.5 font-medium text-petal shadow-lg shadow-garnet/25 transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orchid disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+            className={`group w-full cursor-pointer rounded-xl bg-lime px-4 py-2.5 font-medium text-plum shadow-md transition hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
             {...props}
         >
-            {children}
+            <span className="inline-block transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-translate-y-1 group-active:translate-y-1 group-active:duration-150 group-active:ease-out">
+                {children}
+            </span>
         </button>
     );
 }
