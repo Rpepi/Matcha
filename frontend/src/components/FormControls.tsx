@@ -45,7 +45,7 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>
 export function Button({ children, className = "", ...props }: ButtonProps) {
     return (
         <button
-            className={`group w-full cursor-pointer rounded-xl bg-matcha px-4 py-2.5 font-medium text-ink shadow-md transition hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-matcha disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+            className={`group w-full cursor-pointer rounded-xl bg-matcha px-4 py-2.5 font-medium text-ink transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-matcha disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
             {...props}
         >
             <span className="inline-block transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-translate-y-1 group-active:translate-y-1 group-active:duration-150 group-active:ease-out">
