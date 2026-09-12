@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { X } from "lucide-react";
+import logo from "../assets/logo.png";
 
 interface HeaderProps {
     variant: "landing" | "close";
@@ -12,10 +13,11 @@ export default function Header({ variant }: HeaderProps) {
         <header className="flex items-center justify-between px-6 py-6 sm:px-10">
             <Link
                 to="/"
-                className={`font-display text-xl font-medium tracking-tight ${
+                className={`flex items-center gap-2 font-display text-xl font-medium tracking-tight ${
                     isLanding ? "text-petal" : "text-plum"
                 }`}
             >
+                <img src={logo} alt="" className="h-7 w-7" />
                 matcha
             </Link>
 
