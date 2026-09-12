@@ -7,7 +7,6 @@ import OrientationStep from "../components/onboarding/steps/OrientationStep";
 import BioStep from "../components/onboarding/steps/BioStep";
 import BirthdateStep from "../components/onboarding/steps/BirthdateStep";
 import LocationStep from "../components/onboarding/steps/LocationStep";
-import registerAvatar from "../assets/register_avatar.jpg"
 
 export default function CompleteProfilePage() {
     const {
@@ -45,9 +44,6 @@ export default function CompleteProfilePage() {
                         <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
                         Active nearby
                     </span>
-                    <div className="my-4 ml-4 flex-1 min-h-0 overflow-hidden rounded-lg">
-                        <img className="rounded-lg object-center" src={registerAvatar} />
-                    </div>
                 </div>
             }
         >

@@ -1,39 +1,5 @@
 import { Link } from "react-router-dom";
-import PhotoStack from "../components/PhotoStack";
 import { GradientButton } from "../components/FormControls";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Bubble, BubbleContent } from "@/components/ui/bubble"
-
-import { Message, MessageAvatar, MessageContent, MessageHeader } from "@/components/ui/message"
-import avatar1 from "../assets/avatar1.jpg"
-import avatar2 from "../assets/avatar2.jpg"
-
-
-interface Step {
-    label: string
-    title: string
-    body: string
-}
-
-
-
-const steps: Step[] = [
-    {
-        label: "One",
-        title: "Set up your profile",
-        body: "Gender, orientation, a bio, up to five photos and a few tags — takes about five minutes.",
-    },
-    {
-        label: "Two",
-        title: "See who's nearby",
-        body: "Suggestions are ranked by distance, shared tags and popularity — not random.",
-    },
-    {
-        label: "Three",
-        title: "Chat when it's mutual",
-        body: "Liking is one-sided. Chatting only unlocks once you've both liked each other.",
-    },
-];
 
 export default function LandingPage() {
     return (
@@ -88,106 +54,8 @@ export default function LandingPage() {
                             </div>
                         </div>
                     </div>
-
-                    <PhotoStack
-                        className="shrink-0"
-                        frontSlot={
-                            <div className="flex h-full flex-col justify-end gap-2.5 p-5">
-                                <Message>
-                                    <MessageAvatar>
-                                        <Avatar >
-                                            <AvatarImage src={avatar1} alt="Lea" />
-                                            <AvatarFallback className="bg-gradient-to-br from-orchid to-bloom text-petal">
-                                                L
-                                            </AvatarFallback>
-                                        </Avatar>
-                                    </MessageAvatar>
-                                    <MessageContent>
-                                        <MessageHeader>Lea</MessageHeader>
-                                        <Bubble className="*:data-[slot=bubble-content]:bg-white/12">
-                                            <BubbleContent className="text-petal">
-                                            ok what's your type
-                                            </BubbleContent>
-                                        </Bubble>
-                                        
-                                    </MessageContent>
-                                </Message>
-                                <Message align="end">
-                                    <MessageAvatar>
-                                        <Avatar>
-                                            <AvatarImage src={avatar2} alt="You" />
-                                            <AvatarFallback className="bg-gradient-to-br from-garnet to-orchid text-petal">
-                                                Y
-                                            </AvatarFallback>
-                                        </Avatar>
-                                    </MessageAvatar>
-                                    <MessageContent>
-                                        <Bubble align="end">
-                                            <BubbleContent className="bg-gradient-to-br from-ink to-orchid text-petal">
-                                                people who open with "what's your type"
-                                            </BubbleContent>
-                                        </Bubble>
-                                    </MessageContent>
-                                </Message>
-                                <Message>
-                                    <MessageAvatar>
-                                        <Avatar>
-                                            <AvatarImage src={avatar1} alt="Lea" />
-                                            <AvatarFallback className="bg-gradient-to-br from-orchid to-bloom text-petal">
-                                                L
-                                            </AvatarFallback>
-                                        </Avatar>
-                                    </MessageAvatar>
-                                    <MessageContent>
-                                        <MessageHeader>Lea</MessageHeader>
-                                        <Bubble className="*:data-[slot=bubble-content]:bg-white/12">
-                                            <BubbleContent className="text-petal">
-                                                oh no. i'm already into you
-                                            </BubbleContent>
-                                        </Bubble>
-                                    </MessageContent>
-                                </Message>
-                            </div>
-                        }
-                    />
-                </section>
-
-                <section className="bg-petal py-20 text-plum">
-                    <div className="mx-auto max-w-6xl px-6 sm:px-10">
-                        <h2 className="font-display text-3xl font-medium">
-                            How it works
-                        </h2>
-                        <div className="mt-10 grid gap-10 sm:grid-cols-3">
-                            {steps.map((step) => (
-                                <div key={step.title}>
-                                    <p className="font-display text-lg italic text-orchid">
-                                        {step.label}
-                                    </p>
-                                    <h3 className="mt-2 text-lg font-semibold">
-                                        {step.title}
-                                    </h3>
-                                    <p className="mt-2 text-sm text-plum/60">{step.body}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
                 </section>
             </main>
-
-            <footer className="border-t border-petal/10 px-6 py-8 sm:px-10">
-                <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 text-sm text-petal/50 sm:flex-row">
-                    <span className="font-display text-base text-petal/80">matcha</span>
-                    <p>Built for the 42 Matcha project.</p>
-                    <div className="flex items-center gap-4">
-                        <Link to="/login" className="hover:text-petal">
-                            Log in
-                        </Link>
-                        <Link to="/register" className="hover:text-petal">
-                            Register
-                        </Link>
-                    </div>
-                </div>
-            </footer>
         </div>
     );
 }
