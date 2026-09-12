@@ -14,9 +14,9 @@ export default function Header({ variant }: HeaderProps) {
         <header className="flex items-center justify-between px-6 py-6 sm:px-10">
             <Link
                 to="/"
-                className={`flex items-center gap-2 font-display text-xl font-medium tracking-tight text-matcha`}
+                className={`flex items-center gap-2 font-display text-3xl font-medium tracking-tight text-matcha`}
             >
-                <img src={logo} alt="" className="h-7 w-7" />
+                <img src={logo} alt="" className="h-10 w-10" />
                 matcha
             </Link>
 
