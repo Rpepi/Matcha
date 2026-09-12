@@ -6,7 +6,7 @@ import type {
 } from "react"
 
 const fieldClasses =
-    "w-full rounded-xl border border-ink/15 bg-white px-4 py-2.5 text-ink placeholder:text-ink/40 outline-none transition focus:ring-2";
+    "w-full rounded-xl border border-grey/30 bg-transparent px-4 py-2.5 text-ink placeholder:text-ink/40 outline-none transition focus:ring-2 focus:ring-grey/30";
 
 interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
     label?: string
@@ -15,7 +15,7 @@ interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
 export function Field({ label, id, className = "", ...props }: FieldProps) {
     return (
         <label htmlFor={id} className="block">
-            <span className="mb-1.5 block text-sm font-medium text-ink/80">
+            <span className="mb-1.5 block text-sm font-medium text-ink">
                 {label}
             </span>
             <input id={id} className={`${fieldClasses} ${className}`} {...props} />
