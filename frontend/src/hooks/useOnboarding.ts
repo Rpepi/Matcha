@@ -1,8 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { updateProfile, updateLocation } from "../api/profile";
+import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
 
-export const STEP_COUNT = 5;
+export const STEP_COUNT = 6;
+
+export interface OnboardingPhoto {
+    position: number;
+    url: string;
+}
 
 export function useOnboarding() {
     const [step, setStep] = useState(0);
@@ -15,6 +21,8 @@ export function useOnboarding() {
     const [latitude, setLatitude] = useState<number | ''>('');
     const [longitude, setLongitude] = useState<number | ''>('');
     const [city, setCity] = useState('');
+    const [photos, setPhotos] = useState<OnboardingPhoto[]>([]);
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -69,6 +77,59 @@ export function useOnboarding() {
             maximumAge: 60000,
             enableHighAccuracy: false,
         })
+    }
+
+    async function uploadPhoto(file: File) {
+        setError('');
+        setIsUploadingPhoto(true);
+
+        const usedPositions = photos.map((p) => p.position);
+        const nextPosition = [1, 2, 3, 4, 5].find((p) => !usedPositions.includes(p));
+
+        const response = await uploadPhotoApi(file);
+        if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Could not upload photo. Please try again.');
+            setIsUploadingPhoto(false);
+            return;
+        }
+
+        if (nextPosition !== undefined) {
+            setPhotos((prev) => [...prev, { position: nextPosition, url: URL.createObjectURL(file) }]);
+        }
+        setIsUploadingPhoto(false);
+    }
+
+    async function deletePhoto(position: number) {
+        setError('');
+        const response = await deletePhotoApi(position);
+        if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Could not delete photo. Please try again.');
+            return;
+        }
+
+        const remaining = photos
+            .filter((p) => p.position !== position)
+            .sort((a, b) => a.position - b.position);
+
+        const compacted: OnboardingPhoto[] = [];
+        for (const photo of remaining) {
+            if (photo.position <= position) {
+                compacted.push(photo);
+                continue;
+            }
+            const newPosition = photo.position - 1;
+            const moveResponse = await movePhotoApi(photo.position, newPosition);
+            if (!moveResponse.ok) {
+                const data = await moveResponse.json().catch(() => null);
+                setError(data?.detail ?? 'Could not reorder photos. Please try again.');
+                setPhotos([...compacted, ...remaining.slice(compacted.length)]);
+                return;
+            }
+            compacted.push({ ...photo, position: newPosition });
+        }
+        setPhotos(compacted);
     }
 
     function isAtLeast16(dateStr: string): boolean {
@@ -135,6 +196,10 @@ export function useOnboarding() {
         longitude,
         city,
         setCity,
+        photos,
+        isUploadingPhoto,
+        uploadPhoto,
+        deletePhoto,
         error,
         isLoading,
         goNext,
