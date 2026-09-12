@@ -36,8 +36,10 @@ export default function LoginPage() {
             const data = await response.json();
             navigate(data.profile_complete ? '/browse' : '/complete-profile');
         }
-        else
-            setError('Invalid email or password')
+        else {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Invalid email or password')
+        }
     }
 
     return (
