@@ -14,9 +14,7 @@ export default function Header({ variant }: HeaderProps) {
         <header className="flex items-center justify-between px-6 py-6 sm:px-10">
             <Link
                 to="/"
-                className={`flex items-center gap-2 font-display text-xl font-medium tracking-tight ${
-                    isLanding ? "text-petal" : "text-plum"
-                }`}
+                className={`flex items-center gap-2 font-display text-xl font-medium tracking-tight text-matcha`}
             >
                 <img src={logo} alt="" className="h-7 w-7" />
                 matcha
@@ -26,7 +24,7 @@ export default function Header({ variant }: HeaderProps) {
                 <nav className="flex items-center gap-5">
                     <Link
                         to="/login"
-                        className="text-sm font-medium text-petal/70 transition hover:text-petal"
+                        className="text-sm font-medium transition"
                     >
                         Log in
                     </Link>
@@ -40,7 +38,7 @@ export default function Header({ variant }: HeaderProps) {
                 <Link
                     to="/"
                     aria-label="Back to home"
-                    className="text-plum/60 transition hover:text-plum"
+                    className="text-ink/60 transition hover:text-ink"
                 >
                     <X className="h-6 w-6" />
                 </Link>

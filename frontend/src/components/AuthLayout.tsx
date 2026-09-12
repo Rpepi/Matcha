@@ -7,7 +7,7 @@ interface AuthLayoutProps {
 
 export default function AuthLayout({ children }: AuthLayoutProps) {
     return (
-        <div className="min-h-screen bg-petal font-sans">
+        <div className="min-h-screen font-sans">
             <Header variant="close" />
             <div className="flex items-center justify-center px-6 py-10 sm:px-10">
                 <div className="w-full max-w-sm">{children}</div>

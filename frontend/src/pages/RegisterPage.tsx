@@ -63,10 +63,10 @@ export default function RegisterPage() {
 
     return (
         <AuthLayout>
-            <h2 className="font-display text-3xl font-medium text-plum">
+            <h2 className="font-display text-3xl font-medium text-ink">
                 Create your account
             </h2>
-            <p className="mt-1.5 text-sm text-plum/60">
+            <p className="mt-1.5 text-sm text-ink/60">
                 Just the basics for now.
             </p>
 
@@ -124,9 +124,9 @@ export default function RegisterPage() {
                 </Button>
             </form>
 
-            <p className="mt-8 text-center text-sm text-plum/60">
+            <p className="mt-8 text-center text-sm text-ink/60">
                 Already on Matcha?{" "}
-                <Link to="/login" className="font-medium text-orchid hover:underline">
+                <Link to="/login" className="font-medium text-matcha hover:underline">
                     Log in
                 </Link>
             </p>

@@ -25,7 +25,7 @@ export default function LocationStep({ isActive, city, setCity, latitude, longit
             isActive={isActive}
         >
             <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-sm font-medium text-plum/80">City</span>
+                <span className="text-sm font-medium text-ink/80">City</span>
                 <button
                     type="button"
                     onClick={onUseLocation}
@@ -42,7 +42,7 @@ export default function LocationStep({ isActive, city, setCity, latitude, longit
                 onChange={(e) => setCity(e.target.value)}
             />
             {latitude !== '' && longitude !== '' && (
-                <p className="mt-1.5 text-xs text-plum/50">
+                <p className="mt-1.5 text-xs text-ink/50">
                     Location detected ({Number(latitude).toFixed(2)}, {Number(longitude).toFixed(2)})
                 </p>
             )}
