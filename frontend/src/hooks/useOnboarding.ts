@@ -101,7 +101,8 @@ export function useOnboarding() {
 
         const response = await updateProfile({ gender, orientation, bio, birth_date, city: city || null });
         if (!response.ok) {
-            setError('Could not save your profile. Please check your details and try again.');
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Could not save your profile. Please check your details and try again.');
             setIsLoading(false);
             return;
         }
@@ -109,7 +110,8 @@ export function useOnboarding() {
         if (latitude !== '' && longitude !== '') {
             const locationResponse = await updateLocation(Number(latitude), Number(longitude));
             if (!locationResponse.ok) {
-                setError('Profile saved, but we could not save your location. You can add it later.');
+                const data = await locationResponse.json().catch(() => null);
+                setError(data?.detail ?? 'Profile saved, but we could not save your location. You can add it later.');
                 setIsLoading(false);
                 return;
             }
