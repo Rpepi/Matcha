@@ -34,19 +34,14 @@ export default function CompleteProfilePage() {
     } = useOnboarding();
 
     return (
-        <AuthLayout
-            eyebrow="Matcha · Almost there"
-            headline={firstName ? `Welcome, ${firstName}.` : "Let's finish setting you up."}
-            tagline="A handful of quick questions, then you're ready to start matching."
-            frontSlot={
-                <div className="flex h-full flex-col justify-between p-6">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-petal/80">
-                        <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
-                        Active nearby
-                    </span>
-                </div>
-            }
-        >
+        <AuthLayout>
+            <h2 className="font-display text-2xl font-medium text-plum">
+                {firstName ? `Welcome, ${firstName}.` : "Let's finish setting you up."}
+            </h2>
+            <p className="mt-1.5 mb-6 text-sm text-plum/60">
+                A handful of quick questions, then you're ready to start matching.
+            </p>
+
             <StepProgress step={step} />
 
             <div className="overflow-hidden">
