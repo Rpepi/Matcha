@@ -5,8 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-    --font-display: "Fraunces", serif;
-    --font-sans: "Inter", sans-serif;
+    --font-display: "Cal Sans", serif;
+    --font-sans: "Lexend", sans-serif;
 
     --color-ink: #1b0e23;
     --color-garnet: #a11d3a;
