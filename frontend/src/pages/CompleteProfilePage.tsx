@@ -6,6 +6,7 @@ import GenderStep from "../components/onboarding/steps/GenderStep";
 import OrientationStep from "../components/onboarding/steps/OrientationStep";
 import BioStep from "../components/onboarding/steps/BioStep";
 import BirthdateStep from "../components/onboarding/steps/BirthdateStep";
+import PhotosStep from "../components/onboarding/steps/PhotosStep";
 import LocationStep from "../components/onboarding/steps/LocationStep";
 
 export default function CompleteProfilePage() {
@@ -23,6 +24,10 @@ export default function CompleteProfilePage() {
         longitude,
         city,
         setCity,
+        photos,
+        isUploadingPhoto,
+        uploadPhoto,
+        deletePhoto,
         error,
         isLoading,
         goNext,
@@ -81,6 +86,19 @@ export default function CompleteProfilePage() {
             )}
 
             {step === 4 && (
+                <PhotosStep
+                    key={step}
+                    isActive
+                    photos={photos}
+                    isUploading={isUploadingPhoto}
+                    onUpload={uploadPhoto}
+                    onDelete={deletePhoto}
+                    onBack={goBack}
+                    onNext={goNext}
+                />
+            )}
+
+            {step === 5 && (
                 <LocationStep
                     key={step}
                     isActive
