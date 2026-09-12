@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { X } from "lucide-react";
 import logo from "../assets/logo.png";
+import { Button } from "./FormControls";
 
 interface HeaderProps {
     variant: "landing" | "close";
@@ -29,11 +30,10 @@ export default function Header({ variant }: HeaderProps) {
                     >
                         Log in
                     </Link>
-                    <Link
-                        to="/register"
-                        className="rounded-full bg-gradient-to-r from-garnet to-orchid px-4 py-2 text-sm font-medium text-petal shadow-lg shadow-garnet/25 transition hover:brightness-110"
-                    >
-                        Create an account
+                    <Link to="/register">
+                        <Button className="w-auto rounded-full px-4 py-2 text-sm">
+                            Sign up
+                        </Button>
                     </Link>
                 </nav>
             ) : (

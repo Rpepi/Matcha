@@ -2,7 +2,7 @@ import { useState, useEffect, type SubmitEvent } from "react";
 import { login } from "../api/auth";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
-import { Field, GradientButton, FormNotice, OrDivider } from "../components/FormControls";
+import { Field, Button, FormNotice, OrDivider } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 import ErrorPopup from "../components/ErrorPopup";
 
@@ -76,9 +76,9 @@ export default function LoginPage() {
 
                 <FormNotice tone="error">{error}</FormNotice>
 
-                <GradientButton disabled={!loginPossible} type="submit" className="mt-2">
+                <Button disabled={!loginPossible} type="submit" className="mt-2">
                     Log in
-                </GradientButton>
+                </Button>
             </form>
 
             <p className="mt-8 text-center text-sm text-plum/60">

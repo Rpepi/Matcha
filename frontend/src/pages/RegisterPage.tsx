@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
 import {
     Field,
-    GradientButton,
+    Button,
     FormNotice,
     OrDivider,
 } from "../components/FormControls";
@@ -119,9 +119,9 @@ export default function RegisterPage() {
                 <FormNotice tone="info">{info}</FormNotice>
                 <FormNotice tone="error">{error}</FormNotice>
 
-                <GradientButton type="submit" disabled={isLoading} className="mt-2">
+                <Button type="submit" disabled={isLoading} className="mt-2">
                     {isLoading ? 'Creating account…' : 'Create account'}
-                </GradientButton>
+                </Button>
             </form>
 
             <p className="mt-8 text-center text-sm text-plum/60">
