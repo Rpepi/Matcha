@@ -47,7 +47,7 @@ export default function CompleteProfilePage() {
     }
 
     return (
-        <AuthLayout>
+        <AuthLayout hideClose>
 
             <StepProgress step={step} />
 

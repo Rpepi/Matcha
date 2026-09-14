@@ -5,9 +5,10 @@ import { Button } from "./FormControls";
 
 interface HeaderProps {
     variant: "landing" | "close";
+    hideClose?: boolean;
 }
 
-export default function Header({ variant }: HeaderProps) {
+export default function Header({ variant, hideClose }: HeaderProps) {
     const isLanding = variant === "landing";
 
     return (
@@ -34,7 +35,7 @@ export default function Header({ variant }: HeaderProps) {
                         </Button>
                     </Link>
                 </nav>
-            ) : (
+            ) : !hideClose ? (
                 <Link
                     to="/"
                     aria-label="Back to home"
@@ -42,7 +43,7 @@ export default function Header({ variant }: HeaderProps) {
                 >
                     <X className="h-6 w-6" />
                 </Link>
-            )}
+            ) : null}
         </header>
     );
 }
