@@ -2,19 +2,17 @@ import StepPanel from "../StepPanel";
 import { SelectField } from "../../FormControls";
 
 interface GenderStepProps {
-    isActive: boolean;
     gender: string;
     setGender: (value: string) => void;
     onNext: () => void;
 }
 
-export default function GenderStep({ isActive, gender, setGender, onNext }: GenderStepProps) {
+export default function GenderStep({ gender, setGender, onNext }: GenderStepProps) {
     return (
         <StepPanel
             title="What's your gender?"
             nextDisabled={!gender}
             onNext={onNext}
-            isActive={isActive}
         >
             <SelectField
                 id="gender"

@@ -54,7 +54,6 @@ export default function CompleteProfilePage() {
             {step === 0 && (
                 <GenderStep
                     key={step}
-                    isActive
                     gender={gender}
                     setGender={setGender}
                     onNext={handleGenderNext}
@@ -64,7 +63,6 @@ export default function CompleteProfilePage() {
             {step === 1 && (
                 <OrientationStep
                     key={step}
-                    isActive
                     orientation={orientation}
                     setOrientation={setOrientation}
                     onBack={goBack}
@@ -75,7 +73,6 @@ export default function CompleteProfilePage() {
             {step === 2 && (
                 <BioStep
                     key={step}
-                    isActive
                     bio={bio}
                     setBio={setBio}
                     onBack={goBack}
@@ -86,7 +83,6 @@ export default function CompleteProfilePage() {
             {step === 3 && (
                 <BirthdateStep
                     key={step}
-                    isActive
                     birth_date={birth_date}
                     setBirthDate={setBirthDate}
                     onBack={goBack}
@@ -97,7 +93,6 @@ export default function CompleteProfilePage() {
             {step === 4 && (
                 <PhotosStep
                     key={step}
-                    isActive
                     photos={photos}
                     isUploading={isUploadingPhoto}
                     onUpload={uploadPhoto}
@@ -110,7 +105,6 @@ export default function CompleteProfilePage() {
             {step === 5 && (
                 <LocationStep
                     key={step}
-                    isActive
                     city={city}
                     setCity={setCity}
                     latitude={latitude}
