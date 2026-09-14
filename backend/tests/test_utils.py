@@ -124,7 +124,7 @@ class TestProcessPhoto:
         data = make_jpeg_bytes()
         with patch("os.makedirs"), patch.object(Image.Image, "save"):
             path = process_photo(data, "42")
-        assert path.startswith("/uploads/42/")
+        assert path.startswith("/backend/uploads/42/")
         assert path.endswith(".jpg")
 
     def test_valid_png_converted_to_jpeg(self):
@@ -168,4 +168,4 @@ class TestProcessPhoto:
         data = make_jpeg_bytes()
         with patch("os.makedirs") as mock_makedirs, patch.object(Image.Image, "save"):
             process_photo(data, "7")
-        mock_makedirs.assert_called_once_with("/uploads/7", exist_ok=True)
+        mock_makedirs.assert_called_once_with("/backend/uploads/7", exist_ok=True)
