@@ -6,7 +6,6 @@ import type { OnboardingPhoto } from "../../../hooks/useOnboarding";
 const SLOT_COUNT = 5;
 
 interface PhotosStepProps {
-    isActive: boolean;
     photos: OnboardingPhoto[];
     isUploading: boolean;
     onUpload: (file: File) => void;
@@ -15,7 +14,7 @@ interface PhotosStepProps {
     onNext: () => void;
 }
 
-export default function PhotosStep({ isActive, photos, isUploading, onUpload, onDelete, onBack, onNext }: PhotosStepProps) {
+export default function PhotosStep({ photos, isUploading, onUpload, onDelete, onBack, onNext }: PhotosStepProps) {
     const inputRef = useRef<HTMLInputElement>(null);
 
     function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
@@ -31,7 +30,6 @@ export default function PhotosStep({ isActive, photos, isUploading, onUpload, on
             nextDisabled={photos.length === 0}
             onBack={onBack}
             onNext={onNext}
-            isActive={isActive}
         >
             <input
                 ref={inputRef}

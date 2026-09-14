@@ -2,7 +2,6 @@ import StepPanel from "../StepPanel";
 import { Field } from "../../FormControls";
 
 interface LocationStepProps {
-    isActive: boolean;
     city: string;
     setCity: (value: string) => void;
     latitude: number | '';
@@ -13,7 +12,7 @@ interface LocationStepProps {
     isLoading: boolean;
 }
 
-export default function LocationStep({ isActive, city, setCity, latitude, longitude, onUseLocation, onBack, onNext, isLoading }: LocationStepProps) {
+export default function LocationStep({ city, setCity, latitude, longitude, onUseLocation, onBack, onNext, isLoading }: LocationStepProps) {
     return (
         <StepPanel
             title="Where are you?"
@@ -22,7 +21,6 @@ export default function LocationStep({ isActive, city, setCity, latitude, longit
             onNext={onNext}
             nextLabel="Finish setting up"
             isLoading={isLoading}
-            isActive={isActive}
         >
             <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-sm font-medium text-ink/80">City</span>

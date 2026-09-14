@@ -2,14 +2,13 @@ import StepPanel from "../StepPanel";
 import { Field } from "../../FormControls";
 
 interface BioStepProps {
-    isActive: boolean;
     bio: string;
     setBio: (value: string) => void;
     onBack: () => void;
     onNext: () => void;
 }
 
-export default function BioStep({ isActive, bio, setBio, onBack, onNext }: BioStepProps) {
+export default function BioStep({ bio, setBio, onBack, onNext }: BioStepProps) {
     return (
         <StepPanel
             title="Tell us about yourself"
@@ -17,7 +16,6 @@ export default function BioStep({ isActive, bio, setBio, onBack, onNext }: BioSt
             onBack={onBack}
             onNext={onNext}
             nextLabel={bio ? "Continue" : "Skip for now"}
-            isActive={isActive}
         >
             <Field
                 id="bio"

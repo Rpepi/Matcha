@@ -11,12 +11,11 @@ interface StepPanelProps {
     nextLabel?: string;
     nextDisabled?: boolean;
     isLoading?: boolean;
-    isActive: boolean;
 }
 
-export default function StepPanel({ title, subtitle, children, onBack, onNext, nextLabel = "Continue", nextDisabled, isLoading, isActive }: StepPanelProps) {
+export default function StepPanel({ title, subtitle, children, onBack, onNext, nextLabel = "Continue", nextDisabled, isLoading }: StepPanelProps) {
     return (
-        <div className="relative w-full px-0.5" aria-hidden={!isActive} inert={!isActive}>
+        <div className="relative w-full px-0.5">
             {onBack && (
                 <button
                     type="button"
