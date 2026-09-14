@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, ImageIcon } from "lucide-react";
 import StepPanel from "../StepPanel";
 import type { OnboardingPhoto } from "../../../hooks/useOnboarding";
 
@@ -49,7 +49,13 @@ export default function PhotosStep({ isActive, photos, isUploading, onUpload, on
                                 key={`photo-${photo.position}`}
                                 className="group relative aspect-square overflow-hidden rounded-xl border border-grey/30"
                             >
-                                <img src={photo.url} alt="" className="h-full w-full object-cover" />
+                                {photo.url ? (
+                                    <img src={photo.url} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                    <div className="flex h-full w-full items-center justify-center bg-grey/10 text-grey/40">
+                                        <ImageIcon className="h-6 w-6" />
+                                    </div>
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => onDelete(photo.position)}
