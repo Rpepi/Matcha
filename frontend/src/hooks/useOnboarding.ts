@@ -7,11 +7,12 @@ export const STEP_COUNT = 6;
 
 export interface OnboardingPhoto {
     position: number;
-    url: string;
+    url: string | null; // null for a photo restored from the server (no local file to preview)
 }
 
 export function useOnboarding() {
     const [step, setStep] = useState(0);
+    const [isHydrating, setIsHydrating] = useState(true);
     const [firstName, setFirstName] = useState('');
 
     const [gender, setGender] = useState('');
@@ -34,8 +35,23 @@ export function useOnboarding() {
                 if (!res.ok) return;
                 const data = await res.json();
                 setFirstName(data.first_name ?? '');
+                setGender(data.gender ?? '');
+                setOrientation(data.orientation ?? '');
+                setBio(data.bio ?? '');
+                setBirthDate(data.birth_date ?? '');
+                setCity(data.city ?? '');
+                setLatitude(data.latitude ?? '');
+                setLongitude(data.longitude ?? '');
+                if (Array.isArray(data.photos)) {
+                    setPhotos(
+                        data.photos
+                            .map((p: { position: number }): OnboardingPhoto => ({ position: p.position, url: null }))
+                            .sort((a: OnboardingPhoto, b: OnboardingPhoto) => a.position - b.position)
+                    );
+                }
             })
-            .catch(() => setError('Could not load your account. Please try again.'));
+            .catch(() => setError('Could not load your account. Please try again.'))
+            .finally(() => setIsHydrating(false));
     }, []);
 
     function goNext() {
@@ -46,6 +62,29 @@ export function useOnboarding() {
     function goBack() {
         setError('');
         setStep((s) => Math.max(s - 1, 0));
+    }
+
+    async function saveStep(fields: Parameters<typeof updateProfile>[0]): Promise<boolean> {
+        setError('');
+        const response = await updateProfile(fields);
+        if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Could not save. Please try again.');
+            return false;
+        }
+        return true;
+    }
+
+    async function handleGenderNext() {
+        if (await saveStep({ gender })) goNext();
+    }
+
+    async function handleOrientationNext() {
+        if (await saveStep({ orientation })) goNext();
+    }
+
+    async function handleBioNext() {
+        if (await saveStep({ bio })) goNext();
     }
 
     function HandleUseLocation() {
@@ -144,12 +183,12 @@ export function useOnboarding() {
         return age >= 16;
     }
 
-    function handleBirthdateNext() {
+    async function handleBirthdateNext() {
         if (!isAtLeast16(birth_date)) {
             setError("You must be at least 16 years old to use Matcha.");
             return;
         }
-        goNext();
+        if (await saveStep({ birth_date })) goNext();
     }
 
     async function handleFinish() {
@@ -160,7 +199,7 @@ export function useOnboarding() {
         setError('');
         setIsLoading(true);
 
-        const response = await updateProfile({ gender, orientation, bio, birth_date, city: city || null });
+        const response = await updateProfile({ city: city || null });
         if (!response.ok) {
             const data = await response.json().catch(() => null);
             setError(data?.detail ?? 'Could not save your profile. Please check your details and try again.');
@@ -183,6 +222,7 @@ export function useOnboarding() {
 
     return {
         step,
+        isHydrating,
         firstName,
         gender,
         setGender,
@@ -205,6 +245,9 @@ export function useOnboarding() {
         goNext,
         goBack,
         HandleUseLocation,
+        handleGenderNext,
+        handleOrientationNext,
+        handleBioNext,
         handleBirthdateNext,
         handleFinish,
     };

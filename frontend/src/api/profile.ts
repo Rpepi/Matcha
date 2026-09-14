@@ -1,10 +1,10 @@
-export async function updateProfile(fields: {
+export async function updateProfile(fields: Partial<{
     gender: string;
     orientation: string;
     bio: string;
     birth_date: string;
     city: string | null;
-}): Promise<Response> {
+}>): Promise<Response> {
     const response = await fetch('/api/profile/me', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

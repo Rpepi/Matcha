@@ -12,6 +12,7 @@ import LocationStep from "../components/onboarding/steps/LocationStep";
 export default function CompleteProfilePage() {
     const {
         step,
+        isHydrating,
         gender,
         setGender,
         orientation,
@@ -33,9 +34,20 @@ export default function CompleteProfilePage() {
         goNext,
         goBack,
         HandleUseLocation,
+        handleGenderNext,
+        handleOrientationNext,
+        handleBioNext,
         handleBirthdateNext,
         handleFinish,
     } = useOnboarding();
+
+    if (isHydrating) {
+        return (
+            <AuthLayout>
+                <p className="text-sm text-ink/60">Loading…</p>
+            </AuthLayout>
+        );
+    }
 
     return (
         <AuthLayout>
@@ -48,7 +60,7 @@ export default function CompleteProfilePage() {
                     isActive
                     gender={gender}
                     setGender={setGender}
-                    onNext={goNext}
+                    onNext={handleGenderNext}
                 />
             )}
 
@@ -59,7 +71,7 @@ export default function CompleteProfilePage() {
                     orientation={orientation}
                     setOrientation={setOrientation}
                     onBack={goBack}
-                    onNext={goNext}
+                    onNext={handleOrientationNext}
                 />
             )}
 
@@ -70,7 +82,7 @@ export default function CompleteProfilePage() {
                     bio={bio}
                     setBio={setBio}
                     onBack={goBack}
-                    onNext={goNext}
+                    onNext={handleBioNext}
                 />
             )}
 
