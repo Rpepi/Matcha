@@ -1,4 +1,5 @@
 import AuthLayout from "../components/AuthLayout";
+import LoadingScreen from "../components/LoadingScreen";
 import { FormNotice } from "../components/FormControls";
 import { useOnboarding } from "../hooks/useOnboarding";
 import StepProgress from "../components/onboarding/StepProgress";
@@ -42,11 +43,7 @@ export default function CompleteProfilePage() {
     } = useOnboarding();
 
     if (isHydrating) {
-        return (
-            <AuthLayout>
-                <p className="text-sm text-ink/60">Loading…</p>
-            </AuthLayout>
-        );
+        return <LoadingScreen />;
     }
 
     return (
