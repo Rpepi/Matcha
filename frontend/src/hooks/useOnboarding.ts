@@ -45,7 +45,7 @@ export function useOnboarding() {
                 if (Array.isArray(data.photos)) {
                     setPhotos(
                         data.photos
-                            .map((p: { position: number }): OnboardingPhoto => ({ position: p.position, url: null }))
+                            .map((p: { position: number }): OnboardingPhoto => ({ position: p.position, url: `/api/profile/photos/${p.position}` }))
                             .sort((a: OnboardingPhoto, b: OnboardingPhoto) => a.position - b.position)
                     );
                 }
