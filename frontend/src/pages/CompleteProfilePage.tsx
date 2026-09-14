@@ -6,6 +6,7 @@ import StepProgress from "../components/onboarding/StepProgress";
 import GenderStep from "../components/onboarding/steps/GenderStep";
 import OrientationStep from "../components/onboarding/steps/OrientationStep";
 import BioStep from "../components/onboarding/steps/BioStep";
+import TagsStep from "../components/onboarding/steps/TagsStep";
 import BirthdateStep from "../components/onboarding/steps/BirthdateStep";
 import PhotosStep from "../components/onboarding/steps/PhotosStep";
 import LocationStep from "../components/onboarding/steps/LocationStep";
@@ -20,6 +21,8 @@ export default function CompleteProfilePage() {
         setOrientation,
         bio,
         setBio,
+        tags,
+        setTags,
         birth_date,
         setBirthDate,
         latitude,
@@ -38,6 +41,7 @@ export default function CompleteProfilePage() {
         handleGenderNext,
         handleOrientationNext,
         handleBioNext,
+        handleTagsNext,
         handleBirthdateNext,
         handleFinish,
     } = useOnboarding();
@@ -81,6 +85,16 @@ export default function CompleteProfilePage() {
             )}
 
             {step === 3 && (
+                <TagsStep
+                    key={step}
+                    tags={tags}
+                    setTags={setTags}
+                    onBack={goBack}
+                    onNext={handleTagsNext}
+                />
+            )}
+
+            {step === 4 && (
                 <BirthdateStep
                     key={step}
                     birth_date={birth_date}
@@ -90,7 +104,7 @@ export default function CompleteProfilePage() {
                 />
             )}
 
-            {step === 4 && (
+            {step === 5 && (
                 <PhotosStep
                     key={step}
                     photos={photos}
@@ -102,7 +116,7 @@ export default function CompleteProfilePage() {
                 />
             )}
 
-            {step === 5 && (
+            {step === 6 && (
                 <LocationStep
                     key={step}
                     city={city}
