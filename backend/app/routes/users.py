@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi.responses import FileResponse
 from psycopg import AsyncConnection
 from redis.asyncio import Redis
 from datetime import date
 import json
+import os
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
@@ -240,6 +242,33 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
         await conn.rollback()
 
     return profile
+
+
+@router.get("/users/{target_id}/photos/{position}")
+async def get_user_photo(target_id: int, position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    if str(target_id) == str(user_id):
+        raise HTTPException(status_code=400, detail="use /profile/photos/{position} for your own photos")
+
+    if position < 1 or position > 5:
+        raise HTTPException(status_code=400, detail="invalid position (1-5)")
+
+    if await _is_blocked(conn, user_id, str(target_id)):
+        raise HTTPException(status_code=404, detail="user not found")
+
+    cursor = await conn.execute(
+        "SELECT path FROM photos WHERE user_id = %s AND position = %s",
+        (target_id, position)
+    )
+    photo = await cursor.fetchone()
+    if photo is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    if not os.path.isfile(photo["path"]):
+        raise HTTPException(status_code=404, detail="photo file missing")
+
+    return FileResponse(photo["path"], media_type="image/jpeg")
 
 
 @router.post("/users/{target_id}/like")

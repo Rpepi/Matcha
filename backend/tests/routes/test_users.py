@@ -1,6 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from datetime import date
+from fastapi.responses import Response
 from app.routes.users import _build_orientation_filter, _recalculate_fame
 
 ME_ROW = {
@@ -261,6 +262,66 @@ class TestGetUserProfile:
 
     async def test_no_cookie_returns_401(self, client):
         res = await client.get("/users/2")
+        assert res.status_code == 401
+
+
+class TestGetUserPhoto:
+    async def test_returns_photo_file(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),  # _is_blocked
+            make_cursor(fetchone={"path": "/backend/uploads/2/a.jpg"}),
+        ])
+
+        with patch("app.routes.users.os.path.isfile", return_value=True), \
+             patch("app.routes.users.FileResponse", return_value=Response(content=b"jpeg-bytes", media_type="image/jpeg")) as mock_file_response:
+            res = await auth_client.get("/users/2/photos/1")
+
+        assert res.status_code == 200
+        mock_file_response.assert_called_once_with("/backend/uploads/2/a.jpg", media_type="image/jpeg")
+
+    async def test_own_id_returns_400(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        res = await auth_client.get("/users/1/photos/1")
+        assert res.status_code == 400
+
+    async def test_invalid_position_returns_400(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        res = await auth_client.get("/users/2/photos/6")
+        assert res.status_code == 400
+        assert "1-5" in res.json()["detail"]
+
+    async def test_blocked_user_returns_404(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"1": 1}))
+
+        res = await auth_client.get("/users/2/photos/1")
+        assert res.status_code == 404
+
+    async def test_photo_not_found_returns_404(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),   # not blocked
+            make_cursor(fetchone=None),   # no photo at that position
+        ])
+
+        res = await auth_client.get("/users/2/photos/3")
+        assert res.status_code == 404
+
+    async def test_missing_file_on_disk_returns_404(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone={"path": "/backend/uploads/2/missing.jpg"}),
+        ])
+
+        with patch("app.routes.users.os.path.isfile", return_value=False):
+            res = await auth_client.get("/users/2/photos/1")
+
+        assert res.status_code == 404
+
+    async def test_no_cookie_returns_401(self, client):
+        res = await client.get("/users/2/photos/1")
         assert res.status_code == 401
 
 

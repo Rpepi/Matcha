@@ -1,6 +1,7 @@
 import os
 from datetime import date
 from fastapi import APIRouter, Depends, Response, Request, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from psycopg import AsyncConnection
 from redis import Redis
 from psycopg.rows import DictRow
@@ -339,6 +340,27 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
         raise HTTPException(status_code=500, detail="upload failed")
 
     return {"message": f"{len(photos)} photo(s) uploaded"}
+
+
+@router.get("/profile/photos/{position}")
+async def get_photo(position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    if position < 1 or position > 5:
+        raise HTTPException(status_code=400, detail="invalid position (1-5)")
+
+    cursor = await conn.execute(
+        "SELECT path FROM photos WHERE user_id = %s AND position = %s",
+        (user_id, position)
+    )
+    photo = await cursor.fetchone()
+    if photo is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    if not os.path.isfile(photo["path"]):
+        raise HTTPException(status_code=404, detail="photo file missing")
+
+    return FileResponse(photo["path"], media_type="image/jpeg")
 
 
 @router.delete("/profile/photos/{position}")

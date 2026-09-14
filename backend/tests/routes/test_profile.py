@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from psycopg.errors import UniqueViolation
+from fastapi.responses import Response
 
 JPEG_BYTES = b'\xff\xd8\xff\xe0' + b'\x00' * 200
 PNG_BYTES = b'\x89PNG\r\n\x1a\n' + b'\x00' * 200
@@ -465,6 +466,46 @@ class TestUploadPhotos:
             )
 
         assert res.status_code == 500
+
+
+class TestGetPhoto:
+    async def test_returns_photo_file(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"path": "/backend/uploads/1/a.jpg"}))
+
+        with patch("app.routes.profile.os.path.isfile", return_value=True), \
+             patch("app.routes.profile.FileResponse", return_value=Response(content=b"jpeg-bytes", media_type="image/jpeg")) as mock_file_response:
+            res = await auth_client.get("/profile/photos/1")
+
+        assert res.status_code == 200
+        mock_file_response.assert_called_once_with("/backend/uploads/1/a.jpg", media_type="image/jpeg")
+
+    async def test_invalid_position_returns_400(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        res = await auth_client.get("/profile/photos/6")
+        assert res.status_code == 400
+        assert "1-5" in res.json()["detail"]
+
+    async def test_photo_not_found_returns_404(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone=None))
+
+        res = await auth_client.get("/profile/photos/3")
+        assert res.status_code == 404
+        assert "not found" in res.json()["detail"]
+
+    async def test_missing_file_on_disk_returns_404(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"path": "/backend/uploads/1/missing.jpg"}))
+
+        with patch("app.routes.profile.os.path.isfile", return_value=False):
+            res = await auth_client.get("/profile/photos/1")
+
+        assert res.status_code == 404
+
+    async def test_no_cookie_returns_401(self, client):
+        res = await client.get("/profile/photos/1")
+        assert res.status_code == 401
 
 
 class TestDeletePhoto:
