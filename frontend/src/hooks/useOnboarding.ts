@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { updateProfile, updateLocation } from "../api/profile";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
+import { updateTags } from "../api/tags";
 
-export const STEP_COUNT = 6;
+export const STEP_COUNT = 7;
 
 export interface OnboardingPhoto {
     position: number;
@@ -18,6 +19,7 @@ export function useOnboarding() {
     const [gender, setGender] = useState('');
     const [orientation, setOrientation] = useState('');
     const [bio, setBio] = useState('');
+    const [tags, setTags] = useState<string[]>([]);
     const [birth_date, setBirthDate] = useState('');
     const [latitude, setLatitude] = useState<number | ''>('');
     const [longitude, setLongitude] = useState<number | ''>('');
@@ -38,6 +40,7 @@ export function useOnboarding() {
                 setGender(data.gender ?? '');
                 setOrientation(data.orientation ?? '');
                 setBio(data.bio ?? '');
+                if (Array.isArray(data.tags)) setTags(data.tags);
                 setBirthDate(data.birth_date ?? '');
                 setCity(data.city ?? '');
                 setLatitude(data.latitude ?? '');
@@ -85,6 +88,17 @@ export function useOnboarding() {
 
     async function handleBioNext() {
         if (await saveStep({ bio })) goNext();
+    }
+
+    async function handleTagsNext() {
+        setError('');
+        const response = await updateTags(tags);
+        if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Could not save your tags. Please try again.');
+            return;
+        }
+        goNext();
     }
 
     function HandleUseLocation() {
@@ -230,6 +244,8 @@ export function useOnboarding() {
         setOrientation,
         bio,
         setBio,
+        tags,
+        setTags,
         birth_date,
         setBirthDate,
         latitude,
@@ -248,6 +264,7 @@ export function useOnboarding() {
         handleGenderNext,
         handleOrientationNext,
         handleBioNext,
+        handleTagsNext,
         handleBirthdateNext,
         handleFinish,
     };
