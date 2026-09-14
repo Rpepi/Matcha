@@ -40,11 +40,11 @@ def process_photo(data: bytes, user_id: int) -> str:
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
 
-    img.thumbnail((800, 800))
+    img.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
 
     filename = f"{uuid.uuid4().hex}.jpg"
     path = f"/uploads/{user_id}/{filename}"
     os.makedirs(f"/uploads/{user_id}", exist_ok=True)
-    img.save(path, format="JPEG", quality=85)
+    img.save(path, format="JPEG", quality=92)
 
     return path
