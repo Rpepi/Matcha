@@ -28,7 +28,6 @@ export default function CompleteProfilePage() {
         latitude,
         longitude,
         city,
-        setCity,
         photos,
         isUploadingPhoto,
         uploadPhoto,
@@ -38,6 +37,8 @@ export default function CompleteProfilePage() {
         goNext,
         goBack,
         HandleUseLocation,
+        handleSelectLocation,
+        handleClearLocation,
         handleGenderNext,
         handleOrientationNext,
         handleBioNext,
@@ -120,10 +121,11 @@ export default function CompleteProfilePage() {
                 <LocationStep
                     key={step}
                     city={city}
-                    setCity={setCity}
                     latitude={latitude}
                     longitude={longitude}
                     onUseLocation={HandleUseLocation}
+                    onSelectLocation={handleSelectLocation}
+                    onClearLocation={handleClearLocation}
                     onBack={goBack}
                     onNext={handleFinish}
                     isLoading={isLoading}
