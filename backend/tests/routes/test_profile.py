@@ -87,7 +87,10 @@ class TestPutProfileMe:
 
     async def test_update_tags_only(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+        mock_db.execute = AsyncMock(return_value=make_cursor(
+            fetchone={"id": 1},
+            fetchall=[{"name": "hiking"}, {"name": "music"}]
+        ))
 
         res = await auth_client.put("/profile/me", json={"tags": ["hiking", "music"]})
         assert res.status_code == 200
@@ -99,6 +102,8 @@ class TestPutProfileMe:
         def side_effect(sql, params=None):
             if "gender" in sql and "SELECT" in sql:
                 return make_cursor(fetchone=INCOMPLETE_PROFILE_ROW)
+            if "ANY(%s)" in sql:
+                return make_cursor(fetchall=[{"name": "sport"}])
             return make_cursor(fetchone={"id": 1})
         mock_db.execute = AsyncMock(side_effect=side_effect)
 
@@ -722,7 +727,10 @@ class TestGetTags:
 class TestPutTags:
     async def test_replaces_all_tags(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+        mock_db.execute = AsyncMock(return_value=make_cursor(
+            fetchone={"id": 1},
+            fetchall=[{"name": "sport"}, {"name": "cinema"}]
+        ))
 
         res = await auth_client.put("/profile/tags", json={"tags": ["sport", "cinema"]})
         assert res.status_code == 200
@@ -737,23 +745,29 @@ class TestPutTags:
 
     async def test_strips_whitespace_from_tags(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+        mock_db.execute = AsyncMock(return_value=make_cursor(
+            fetchone={"id": 1},
+            fetchall=[{"name": "sport"}]
+        ))
 
         res = await auth_client.put("/profile/tags", json={"tags": ["  sport  "]})
         assert res.status_code == 200
 
     async def test_normalizes_tag_case(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+        mock_db.execute = AsyncMock(return_value=make_cursor(
+            fetchone={"id": 1},
+            fetchall=[{"name": "hiking"}, {"name": "music"}]
+        ))
 
         res = await auth_client.put("/profile/tags", json={"tags": ["  Hiking  ", "MUSIC"]})
         assert res.status_code == 200
 
-        inserted_names = [
+        existence_check_params = [
             call.args[1][0] for call in mock_db.execute.call_args_list
-            if "INSERT INTO tags" in call.args[0]
+            if "ANY(%s)" in call.args[0]
         ]
-        assert inserted_names == ["hiking", "music"]
+        assert existence_check_params == [["hiking", "music"]]
 
     async def test_missing_tags_field_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

@@ -9,5 +9,27 @@ CREATE TABLE user_tags (
     PRIMARY KEY (user_id, tag_id)
 );
 
+INSERT INTO tags (name) VALUES
+    ('travel'),
+    ('coffee'),
+    ('hiking'),
+    ('movies'),
+    ('music'),
+    ('gaming'),
+    ('fitness'),
+    ('foodie'),
+    ('art'),
+    ('photography'),
+    ('dogs'),
+    ('cats'),
+    ('yoga'),
+    ('reading'),
+    ('dancing'),
+    ('cooking'),
+    ('wine'),
+    ('beach'),
+    ('nature'),
+    ('tech');
+
 -- Speed up "which users have this tag"
 CREATE INDEX idx_user_tags_tag_id ON user_tags(tag_id);
