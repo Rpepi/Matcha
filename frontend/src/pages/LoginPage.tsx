@@ -1,5 +1,6 @@
 import { useState, useEffect, type SubmitEvent } from "react";
 import { login } from "../api/auth";
+import { useProfileContext } from "../context/ProfileContext";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
 import { Field, Button, FormNotice, OrDivider } from "../components/FormControls";
@@ -13,6 +14,7 @@ export default function LoginPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
     const navigate = useNavigate()
+    const { refetch } = useProfileContext()
     let loginPossible = false
 
     if ( password && email )
@@ -34,6 +36,7 @@ export default function LoginPage() {
         const response = await login(email, password)
         if (response.ok) {
             const data = await response.json();
+            await refetch();
             navigate(data.profile_complete ? '/browse' : '/complete-profile');
         }
         else {

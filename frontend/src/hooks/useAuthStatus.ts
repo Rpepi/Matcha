@@ -1,22 +1,7 @@
-import { useState, useEffect } from "react";
+import { useProfileContext, type AuthStatus } from "../context/ProfileContext";
 
-export type AuthStatus = 'loading' | 'guest' | 'incomplete' | 'complete';
+export type { AuthStatus };
 
 export function useAuthStatus(): AuthStatus {
-    const [status, setStatus] = useState<AuthStatus>('loading');
-
-    useEffect(() => {
-        fetch('/api/profile/me', { credentials: 'include' })
-            .then(async (res) => {
-                if (!res.ok) {
-                    setStatus('guest');
-                    return;
-                }
-                const data = await res.json();
-                setStatus(data.profile_complete ? 'complete' : 'incomplete');
-            })
-            .catch(() => setStatus('guest'));
-    }, []);
-
-    return status;
+    return useProfileContext().status;
 }

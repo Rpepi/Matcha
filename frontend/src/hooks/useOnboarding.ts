@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useProfileContext } from "../context/ProfileContext";
 import { updateProfile, updateLocation } from "../api/profile";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
 import { updateTags } from "../api/tags";
@@ -12,6 +13,8 @@ export interface OnboardingPhoto {
 }
 
 export function useOnboarding() {
+    const { status, profile, refetch } = useProfileContext();
+    const hasHydrated = useRef(false);
     const [step, setStep] = useState(0);
     const [isHydrating, setIsHydrating] = useState(true);
     const [firstName, setFirstName] = useState('');
@@ -32,30 +35,27 @@ export function useOnboarding() {
     const navigate = useNavigate();
 
     useEffect(() => {
-        fetch('/api/profile/me', { credentials: 'include' })
-            .then(async (res) => {
-                if (!res.ok) return;
-                const data = await res.json();
-                setFirstName(data.first_name ?? '');
-                setGender(data.gender ?? '');
-                setOrientation(data.orientation ?? '');
-                setBio(data.bio ?? '');
-                if (Array.isArray(data.tags)) setTags(data.tags);
-                setBirthDate(data.birth_date ?? '');
-                setCity(data.city ?? '');
-                setLatitude(data.latitude ?? '');
-                setLongitude(data.longitude ?? '');
-                if (Array.isArray(data.photos)) {
-                    setPhotos(
-                        data.photos
-                            .map((p: { position: number; path: string }): OnboardingPhoto => ({ position: p.position, url: `/api/profile/photos/${p.position}?v=${encodeURIComponent(p.path)}` }))
-                            .sort((a: OnboardingPhoto, b: OnboardingPhoto) => a.position - b.position)
-                    );
-                }
-            })
-            .catch(() => setError('Could not load your account. Please try again.'))
-            .finally(() => setIsHydrating(false));
-    }, []);
+        if (status === 'loading' || hasHydrated.current || !profile) return;
+        hasHydrated.current = true;
+
+        setFirstName(profile.first_name ?? '');
+        setGender(profile.gender ?? '');
+        setOrientation(profile.orientation ?? '');
+        setBio(profile.bio ?? '');
+        if (Array.isArray(profile.tags)) setTags(profile.tags);
+        setBirthDate(profile.birth_date ?? '');
+        setCity(profile.city ?? '');
+        setLatitude(profile.latitude ?? '');
+        setLongitude(profile.longitude ?? '');
+        if (Array.isArray(profile.photos)) {
+            setPhotos(
+                profile.photos
+                    .map((p): OnboardingPhoto => ({ position: p.position, url: `/api/profile/photos/${p.position}?v=${encodeURIComponent(p.path)}` }))
+                    .sort((a, b) => a.position - b.position)
+            );
+        }
+        setIsHydrating(false);
+    }, [status, profile]);
 
     function goNext() {
         setError('');
@@ -231,6 +231,7 @@ export function useOnboarding() {
             }
         }
 
+        await refetch();
         navigate('/browse');
     }
 
