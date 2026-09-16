@@ -4,6 +4,7 @@ import { useProfileContext } from "../context/ProfileContext";
 import { updateProfile, updateLocation } from "../api/profile";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
 import { updateTags } from "../api/tags";
+import { formatPlaceLabel, type NominatimResult } from "../lib/nominatim";
 
 export const STEP_COUNT = 7;
 
@@ -101,35 +102,65 @@ export function useOnboarding() {
         goNext();
     }
 
-    function HandleUseLocation() {
-        if (!("geolocation" in navigator)) {
-            setError("Your browser does not support geolocation");
-            return;
+    async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14`);
+            const data: NominatimResult = await res.json();
+            return data?.display_name ? formatPlaceLabel(data) : null;
+        } catch {
+            return null;
         }
-        navigator.geolocation.getCurrentPosition((position) => {
-            setLatitude(position.coords.latitude);
-            setLongitude(position.coords.longitude);
-        },
-        (geoError) => {
-            switch (geoError.code) {
-                case 1:
-                    setError("Access to this location has been denied. Please allow it in your browser settings.");
-                    break;
-                case 2:
-                    setError("This location is not available. Please enter your city manually.");
-                    break;
-                case 3:
-                    setError("Geolocation took too long. Please try again or enter your city.");
-                    break;
-                default:
-                    setError("An unknown error occurred.");
+    }
+
+    function HandleUseLocation(): Promise<string | null> {
+        return new Promise((resolve) => {
+            if (!("geolocation" in navigator)) {
+                setError("Your browser does not support geolocation");
+                resolve(null);
+                return;
             }
-        },
-        {
-            timeout: 10000,
-            maximumAge: 60000,
-            enableHighAccuracy: false,
-        })
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                setLatitude(lat);
+                setLongitude(lon);
+                const cityName = await reverseGeocode(lat, lon);
+                if (cityName) setCity(cityName);
+                resolve(cityName);
+            },
+            (geoError) => {
+                switch (geoError.code) {
+                    case 1:
+                        setError("Access to this location has been denied. Please allow it in your browser settings.");
+                        break;
+                    case 2:
+                        setError("This location is not available. Please search for your city instead.");
+                        break;
+                    case 3:
+                        setError("Geolocation took too long. Please try again or enter your city.");
+                        break;
+                    default:
+                        setError("An unknown error occurred.");
+                }
+                resolve(null);
+            },
+            {
+                timeout: 10000,
+                maximumAge: 60000,
+                enableHighAccuracy: false,
+            })
+        });
+    }
+
+    function handleSelectLocation(selectedCity: string, lat: number, lon: number) {
+        setCity(selectedCity);
+        setLatitude(lat);
+        setLongitude(lon);
+    }
+
+    function handleClearLocation() {
+        setLatitude('');
+        setLongitude('');
     }
 
     async function uploadPhoto(file: File) {
@@ -206,8 +237,8 @@ export function useOnboarding() {
     }
 
     async function handleFinish() {
-        if (!city && (latitude === '' || longitude === '')) {
-            setError("Add your city or share your location so we can find matches near you.");
+        if (latitude === '' || longitude === '') {
+            setError("Pick your city from the search, or share your location, so we can find matches near you.");
             return;
         }
         setError('');
@@ -221,14 +252,12 @@ export function useOnboarding() {
             return;
         }
 
-        if (latitude !== '' && longitude !== '') {
-            const locationResponse = await updateLocation(Number(latitude), Number(longitude));
-            if (!locationResponse.ok) {
-                const data = await locationResponse.json().catch(() => null);
-                setError(data?.detail ?? 'Profile saved, but we could not save your location. You can add it later.');
-                setIsLoading(false);
-                return;
-            }
+        const locationResponse = await updateLocation(latitude, longitude);
+        if (!locationResponse.ok) {
+            const data = await locationResponse.json().catch(() => null);
+            setError(data?.detail ?? 'Profile saved, but we could not save your location. You can add it later.');
+            setIsLoading(false);
+            return;
         }
 
         await refetch();
@@ -262,6 +291,8 @@ export function useOnboarding() {
         goNext,
         goBack,
         HandleUseLocation,
+        handleSelectLocation,
+        handleClearLocation,
         handleGenderNext,
         handleOrientationNext,
         handleBioNext,
