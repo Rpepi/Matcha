@@ -659,6 +659,42 @@ class TestMovePhoto:
         assert res.status_code == 500
 
 
+class TestListTags:
+    async def test_returns_all_tags(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[
+            {"name": "cooking"}, {"name": "hiking"}, {"name": "music"},
+        ]))
+
+        res = await auth_client.get("/tags")
+        assert res.status_code == 200
+        assert res.json() == {"tags": ["cooking", "hiking", "music"]}
+
+    async def test_search_filters_tags(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[{"name": "hiking"}]))
+
+        res = await auth_client.get("/tags?search=hik")
+        assert res.status_code == 200
+        assert res.json() == {"tags": ["hiking"]}
+
+        executed_sql, params = mock_db.execute.call_args_list[-1][0]
+        assert "ILIKE" in executed_sql
+        assert params == ("%hik%",)
+
+    async def test_empty_tags(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        res = await auth_client.get("/tags")
+        assert res.status_code == 200
+        assert res.json() == {"tags": []}
+
+    async def test_no_cookie_returns_401(self, client):
+        res = await client.get("/tags")
+        assert res.status_code == 401
+
+
 class TestGetTags:
     async def test_returns_tag_list(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -705,6 +741,19 @@ class TestPutTags:
 
         res = await auth_client.put("/profile/tags", json={"tags": ["  sport  "]})
         assert res.status_code == 200
+
+    async def test_normalizes_tag_case(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 1}))
+
+        res = await auth_client.put("/profile/tags", json={"tags": ["  Hiking  ", "MUSIC"]})
+        assert res.status_code == 200
+
+        inserted_names = [
+            call.args[1][0] for call in mock_db.execute.call_args_list
+            if "INSERT INTO tags" in call.args[0]
+        ]
+        assert inserted_names == ["hiking", "music"]
 
     async def test_missing_tags_field_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -763,6 +812,16 @@ class TestDeleteTag:
         res = await auth_client.delete("/profile/tags/sport")
         assert res.status_code == 200
         assert "sport" in res.json()["message"]
+
+    async def test_removes_tag_regardless_of_case(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"tag_id": 7}))
+
+        res = await auth_client.delete("/profile/tags/Sport")
+        assert res.status_code == 200
+
+        params = mock_db.execute.call_args_list[-1][0][1]
+        assert params == ("1", "sport")
 
     async def test_tag_not_found_returns_404(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

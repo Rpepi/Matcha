@@ -179,6 +179,24 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
     return {"message": "Location updated"}
 
 
+@router.get("/tags")
+async def list_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    await get_current_user_id(request.cookies.get("session"), redis)
+
+    search = request.query_params.get("search")
+
+    if search:
+        cursor = await conn.execute(
+            "SELECT name FROM tags WHERE name ILIKE %s ORDER BY name LIMIT 20",
+            (f"%{search.strip()}%",)
+        )
+    else:
+        cursor = await conn.execute("SELECT name FROM tags ORDER BY name LIMIT 100")
+
+    rows = await cursor.fetchall()
+    return {"tags": [r["name"] for r in rows]}
+
+
 @router.get("/profile/tags")
 async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
@@ -201,7 +219,9 @@ def _validate_tags(tags) -> list[str]:
     for tag in tags:
         if not isinstance(tag, str) or not tag.strip():
             raise HTTPException(status_code=400, detail="each tag must be a non-empty string")
-    return [tag.strip() for tag in tags]
+    # Normalized (trimmed + lowercased) so "Hiking" and "hiking" reuse the
+    # same row instead of splitting the common_tags matching signal.
+    return [tag.strip().lower() for tag in tags]
 
 
 async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
@@ -246,7 +266,7 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
         DELETE FROM user_tags
         WHERE user_id = %s AND tag_id = (SELECT id FROM tags WHERE name = %s)
         RETURNING tag_id
-    """, (user_id, name))
+    """, (user_id, name.strip().lower()))
     deleted = await cursor.fetchone()
 
     if deleted is None:
