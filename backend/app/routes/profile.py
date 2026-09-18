@@ -89,7 +89,7 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     email_changed = "email" in updates
 
     if tags is not None:
-        tags = _validate_tags(tags)
+        tags = await _validate_tags(conn, tags)
 
     try:
         if updates:
@@ -179,6 +179,24 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
     return {"message": "Location updated"}
 
 
+@router.get("/tags")
+async def list_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    await get_current_user_id(request.cookies.get("session"), redis)
+
+    search = request.query_params.get("search")
+
+    if search:
+        cursor = await conn.execute(
+            "SELECT name FROM tags WHERE name ILIKE %s ORDER BY name LIMIT 20",
+            (f"%{search.strip()}%",)
+        )
+    else:
+        cursor = await conn.execute("SELECT name FROM tags ORDER BY name LIMIT 100")
+
+    rows = await cursor.fetchall()
+    return {"tags": [r["name"] for r in rows]}
+
+
 @router.get("/profile/tags")
 async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
@@ -193,7 +211,7 @@ async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
     return {"tags": [r["name"] for r in rows]}
 
 
-def _validate_tags(tags) -> list[str]:
+async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
     if not isinstance(tags, list):
         raise HTTPException(status_code=400, detail="tags must be a list")
     if len(tags) > 5:
@@ -201,16 +219,23 @@ def _validate_tags(tags) -> list[str]:
     for tag in tags:
         if not isinstance(tag, str) or not tag.strip():
             raise HTTPException(status_code=400, detail="each tag must be a non-empty string")
-    return [tag.strip() for tag in tags]
+
+    normalized = [tag.strip().lower() for tag in tags]
+
+    cursor = await conn.execute("""
+        SELECT name FROM tags WHERE name = ANY(%s)
+    """, (normalized,))
+    rows = await cursor.fetchall()
+    existing = [r["name"] for r in rows]
+    for tag in normalized:
+        if tag not in existing:
+            raise HTTPException(status_code=400, detail=f"unknown tags: {tag}")
+    return normalized
 
 
 async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
     await conn.execute("DELETE FROM user_tags WHERE user_id = %s", (user_id,))
     for name in tags:
-        await conn.execute(
-            "INSERT INTO tags (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
-            (name,)
-        )
         cursor = await conn.execute("SELECT id FROM tags WHERE name = %s", (name,))
         tag = await cursor.fetchone()
         await conn.execute(
@@ -224,9 +249,8 @@ async def put_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     body = await require_json(request)
 
-    tags = _validate_tags(body.get("tags"))
-
-    try:
+    try: 
+        tags = await _validate_tags(conn, body.get("tags"))
         await _replace_tags(conn, user_id, tags)
         await conn.commit()
     except HTTPException:
@@ -246,7 +270,7 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
         DELETE FROM user_tags
         WHERE user_id = %s AND tag_id = (SELECT id FROM tags WHERE name = %s)
         RETURNING tag_id
-    """, (user_id, name))
+    """, (user_id, name.strip().lower()))
     deleted = await cursor.fetchone()
 
     if deleted is None:
