@@ -1,12 +1,9 @@
+import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import StepPanel from "../StepPanel";
+import { getAvailableTags } from "../../../api/tags";
 
 const MAX_TAGS = 5;
-
-const AVAILABLE_TAGS = [
-    "Travel", "Coffee", "Hiking", "Movies", "Music", "Gaming", "Fitness",
-    "Foodie", "Art", "Photography", "Dogs", "Cats", "Yoga", "Reading",
-    "Dancing", "Cooking", "Wine", "Beach", "Nature", "Tech",
-];
 
 interface TagsStepProps {
     tags: string[];
@@ -16,6 +13,19 @@ interface TagsStepProps {
 }
 
 export default function TagsStep({ tags, setTags, onBack, onNext }: TagsStepProps) {
+    const [availableTags, setAvailableTags] = useState<string[]>([]);
+    const [isLoadingTags, setIsLoadingTags] = useState(true);
+
+    useEffect(() => {
+        getAvailableTags()
+            .then(async (res) => {
+                if (!res.ok) return;
+                const data = await res.json();
+                if (Array.isArray(data.tags)) setAvailableTags(data.tags);
+            })
+            .finally(() => setIsLoadingTags(false));
+    }, []);
+
     function toggleTag(tag: string) {
         if (tags.includes(tag)) {
             setTags(tags.filter((t) => t !== tag));
@@ -33,7 +43,13 @@ export default function TagsStep({ tags, setTags, onBack, onNext }: TagsStepProp
             onNext={onNext}
         >
             <div className="flex flex-wrap gap-2 mb-7">
-                {AVAILABLE_TAGS.map((tag) => {
+                {isLoadingTags && (
+                    <Loader2 className="h-5 w-5 animate-spin text-matcha" />
+                )}
+                {!isLoadingTags && availableTags.length === 0 && (
+                    <p className="text-sm text-ink/50">Could not load interests. Please try again later.</p>
+                )}
+                {availableTags.map((tag) => {
                     const isSelected = tags.includes(tag);
                     const isDisabled = !isSelected && tags.length >= MAX_TAGS;
                     return (
