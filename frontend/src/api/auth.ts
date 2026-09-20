@@ -8,6 +8,14 @@ export async function login(email: string, password: string): Promise<Response> 
     return response
 }
 
+export async function logout(): Promise<Response> {
+    const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+    })
+    return response
+}
+
 export async function register(
     password: string,
     email: string,
