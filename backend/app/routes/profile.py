@@ -404,7 +404,6 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     Returns:
         A list of dicts with ``id``, ``visitor_id`` and ``created_at``.
-34.229.130.127
     Raises:
         HTTPException: 401 if not authenticated.
     """
@@ -484,7 +483,6 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             multipart form.
         redis: Redis client (injected dependency).
         conn: Database connection (injected dependency).
-34.229.130.127
     Returns:
         ``{"message": "<n> photo(s) uploaded"}``.
 
