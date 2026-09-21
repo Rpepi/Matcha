@@ -29,7 +29,7 @@ export default function GoogleAuthButton({ label = "Continue with Google" }: Goo
     return (
         <a
             href="/api/oauth/google/login"
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-plum/15 bg-white px-4 py-2.5 text-sm font-medium text-plum transition hover:bg-plum/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orchid"
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-ink/15 px-4 py-2.5 text-sm font-medium text-ink transition hover:bg-ink/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orchid"
         >
             <GoogleIcon />
             {label}

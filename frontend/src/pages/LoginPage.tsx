@@ -1,11 +1,11 @@
 import { useState, useEffect, type SubmitEvent } from "react";
 import { login } from "../api/auth";
+import { useProfileContext } from "../context/ProfileContext";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
-import { Field, GradientButton, FormNotice, OrDivider } from "../components/FormControls";
+import { Field, Button, FormNotice, OrDivider } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 import ErrorPopup from "../components/ErrorPopup";
-import LoginAvatar from "../assets/login_avatar.jpg"
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -14,6 +14,7 @@ export default function LoginPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
     const navigate = useNavigate()
+    const { refetch } = useProfileContext()
     let loginPossible = false
 
     if ( password && email )
@@ -33,34 +34,21 @@ export default function LoginPage() {
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
         const response = await login(email, password)
-        if (response.ok)
-            navigate('/browse')
-        else
-            setError('Invalid email or password')
+        if (response.ok) {
+            const data = await response.json();
+            await refetch();
+            navigate(data.profile_complete ? '/browse' : '/complete-profile');
+        }
+        else {
+            const data = await response.json().catch(() => null);
+            setError(data?.detail ?? 'Invalid email or password')
+        }
     }
 
     return (
-        <AuthLayout
-            eyebrow="Matcha · Sign in"
-            headline="Good, you're back."
-            tagline="Someone out there is one match away from becoming a very long conversation."
-            frontSlot={
-                <div className="flex h-full flex-col justify-between p-6">
-                    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-petal/80">
-                        <span className="h-1.5 w-1.5 rounded-full bg-bloom" />
-                        Active nearby
-                    </span>
-                    <div className="my-4 ml-4 flex-1 min-h-0 overflow-hidden rounded-lg">
-                        <img className="rounded-lg object-center" src={LoginAvatar} />
-                    </div>
-                    <p className="font-display text-xl italic text-petal/90">
-                        
-                    </p>
-                </div>
-            }
-        >
-            <h2 className="font-display text-3xl font-medium text-plum">Log in</h2>
-            <p className="mt-1.5 text-sm text-plum/60">
+        <AuthLayout>
+            <h2 className="font-display text-3xl font-medium text-ink">Log in</h2>
+            <p className="mt-1.5 text-sm text-ink/60">
                 Welcome back to your matches.
             </p>
 
@@ -93,14 +81,14 @@ export default function LoginPage() {
 
                 <FormNotice tone="error">{error}</FormNotice>
 
-                <GradientButton disabled={!loginPossible} type="submit" className="mt-2">
+                <Button disabled={!loginPossible} type="submit" className="mt-2">
                     Log in
-                </GradientButton>
+                </Button>
             </form>
 
-            <p className="mt-8 text-center text-sm text-plum/60">
+            <p className="mt-8 text-center text-sm text-ink/60">
                 Not a member?{" "}
-                <Link to="/register" className="font-medium text-orchid hover:underline">
+                <Link to="/register" className="font-medium text-matcha hover:underline">
                     Register now
                 </Link>
             </p>
