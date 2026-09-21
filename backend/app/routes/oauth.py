@@ -36,15 +36,23 @@ router = APIRouter()
 
 @router.get("/oauth/google/login")
 async def oauth_login(redis: redis.Redis = Depends(get_redis)):
-    """
-    Step 1 of the Google OAuth2 flow: redirect the user's browser to
-    Google's consent screen.
+    """Step 1 of the Google OAuth2 flow: send the user to Google's consent screen.
 
     Generates a random anti-CSRF `state`, stores it in Redis (single-use,
     5 min TTL), and redirects to Google's authorize endpoint with our
     client_id, redirect_uri, requested scopes and that state. Must be
     reached via a real browser navigation (a link, never a fetch()), since
     the consent screen has to actually be visible to the user.
+
+    Args:
+        redis: Redis client (injected dependency).
+
+    Returns:
+        A redirect to Google's authorize endpoint.
+
+    Raises:
+        HTTPException: 503 on a Redis error and 501 on any other failure
+            while storing the state.
     """
     # Anti-CSRF token: stored in Redis now, checked and consumed once in the
     # callback. Proves the callback we receive corresponds to a login attempt
@@ -72,9 +80,9 @@ async def oauth_login(redis: redis.Redis = Depends(get_redis)):
 
 @router.get("/oauth/google/callback")
 async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
-    """
-    Step 2 of the Google OAuth2 flow: handles Google's redirect back after
-    the user accepted (or declined) the consent screen.
+    """Step 2 of the Google OAuth2 flow: handle Google's redirect back.
+
+    Called after the user accepted (or declined) the consent screen.
 
     Order of operations:
       1. Bail out on Google's own error/denial, or a malformed callback.
@@ -92,6 +100,16 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
     with a short `?error=<code>` — never a raised HTTPException, since the
     client here is a top-level browser navigation, not JS that could read a
     JSON error body.
+
+    Args:
+        request: Incoming request carrying Google's ``code``, ``state`` and
+            ``error`` query parameters.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A redirect to ``/browse`` or ``/complete-profile`` with the session
+        cookie set, or to ``/login?error=<code>`` on failure.
     """
     code = request.query_params.get("code")
     state = request.query_params.get("state")
