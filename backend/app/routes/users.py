@@ -18,6 +18,20 @@ router = APIRouter()
 
 
 async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
+    """Fetch the public columns of a user.
+
+    Args:
+        conn: Database connection.
+        user_id: Id of the user to fetch.
+
+    Returns:
+        A dict with ``id``, ``first_name``, ``last_name``, ``gender``,
+        ``orientation``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
+        ``is_online`` and ``last_seen``.
+
+    Raises:
+        HTTPException: 404 if the user does not exist.
+    """
     cursor = await conn.execute("""
         SELECT id, first_name, last_name, gender, orientation,
             bio, birth_date, fame_rating, city, is_online, last_seen
@@ -30,6 +44,16 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
 
 
 async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
+    """Check whether a block exists between two users, in either direction.
+
+    Args:
+        conn: Database connection.
+        a: Id of the first user.
+        b: Id of the second user.
+
+    Returns:
+        True if a blocked b or b blocked a.
+    """
     cursor = await conn.execute("""
         SELECT 1 FROM blocks
         WHERE (blocker_id = %s AND blocked_id = %s)
@@ -39,6 +63,15 @@ async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
 
 
 async def _recalculate_fame(conn: AsyncConnection, user_id: str):
+    """Recompute and store a user's fame rating.
+
+    The rating is the number of likes received plus the number of those
+    likes that are reciprocated (matches). Does not commit.
+
+    Args:
+        conn: Database connection.
+        user_id: Id of the user whose rating is rewritten.
+    """
     await conn.execute("""
         UPDATE users SET fame_rating = (
             SELECT COUNT(*) FROM likes WHERE liked_id = %s
@@ -58,6 +91,18 @@ async def _recalculate_fame(conn: AsyncConnection, user_id: str):
 
 
 def _parse_int_param(value: str | None, name: str) -> int | None:
+    """Parse an optional integer query parameter.
+
+    Args:
+        value: Raw parameter value, or ``None`` if absent.
+        name: Parameter name, used in the error message.
+
+    Returns:
+        The integer value, or ``None`` if the parameter is absent.
+
+    Raises:
+        HTTPException: 400 if the value is not an integer.
+    """
     if value is None:
         return None
     try:
@@ -67,7 +112,24 @@ def _parse_int_param(value: str | None, name: str) -> int | None:
 
 
 def _build_orientation_filter(gender: str | None, orientation: str | None) -> tuple[list[str], list]:
-    """Return (sql_conditions, params) for gender/orientation compatibility."""
+    """Build the SQL conditions restricting candidates by gender/orientation.
+
+    A "homo" user only sees users of the same gender who are "homo" or
+    "bi". A "hetero" user only sees users of the opposite gender (male or
+    female) who are "hetero" or "bi"; with any other gender only the
+    orientation is constrained. "bi" or unknown orientations add no
+    condition.
+
+    Args:
+        gender: Gender of the current user.
+        orientation: Orientation of the current user.
+
+    Returns:
+        A tuple ``(sql_conditions, params)``: SQL fragments using the ``u``
+        alias of the ``users`` table with ``%s`` placeholders, and the
+        matching parameter values. Both lists are empty when nothing is
+        restricted.
+    """
     if orientation == "homo":
         return (
             ["u.gender = %s", "u.orientation = ANY(%s)"],
@@ -87,6 +149,34 @@ def _build_orientation_filter(gender: str | None, orientation: str | None) -> tu
 
 @router.get("/users")
 async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List suggested profiles for the current user.
+
+    Candidates are verified users with a complete profile and a location,
+    excluding the user themself, blocked users (both directions) and users
+    not compatible with the orientation rules. They are ranked by a score
+    combining shared tags (x20), fame (x0.5), age closeness and distance
+    (x0.1 per km), best first, 20 per page. The current user must have set
+    their location.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and optional
+            integer query parameters ``page`` (0-based), ``min_age``,
+            ``max_age``, ``max_distance`` (km), ``min_fame`` and ``min_tags``
+            (minimum number of tags in common).
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A list of dicts with ``id``, ``first_name``, ``last_name``,
+        ``gender``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
+        ``is_online``, ``last_seen``, ``age``, ``distance_km``,
+        ``common_tags``, ``score`` and ``photo``.
+
+    Raises:
+        HTTPException: 400 if a query parameter is not an integer or the
+            user's location is not set; 401 if the session is missing or
+            invalid.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     qp = request.query_params
@@ -198,6 +288,27 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
 
 @router.get("/users/{target_id}")
 async def get_user_profile(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Return another user's profile and record the visit.
+
+    Side effect: inserts a row in ``visits`` and sends a "visit"
+    notification to the viewed user. If that fails, the error is logged and
+    rolled back, and the profile is still returned.
+
+    Args:
+        target_id: Id of the user to view.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        The public fields of the user (see ``_get_user_or_404``) plus
+        ``photos``, ``tags``, ``is_liked_by_me`` and ``is_match``.
+
+    Raises:
+        HTTPException: 400 if ``target_id`` is the current user; 401 if not
+            authenticated; 404 if the user does not exist or a block exists
+            between the two users.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if str(target_id) == str(user_id):
@@ -246,6 +357,24 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
 
 @router.get("/users/{target_id}/photos/{position}")
 async def get_user_photo(target_id: int, position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Serve another user's photo as a JPEG.
+
+    Args:
+        target_id: Id of the photo's owner.
+        position: Photo position, from 1 to 5.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        The image file.
+
+    Raises:
+        HTTPException: 400 if ``target_id`` is the current user or the
+            position is out of range; 401 if not authenticated; 404 if a
+            block exists, there is no photo at that position, or the file
+            is missing on disk.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if str(target_id) == str(user_id):
@@ -273,6 +402,27 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
 
 @router.post("/users/{target_id}/like")
 async def like_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Like a user, creating a match if the like is reciprocated.
+
+    Liking again is harmless and returns "already liked". A new like
+    notifies the target with "like", or both users with "match" when the
+    target already liked back. Fame ratings are recalculated in the same
+    transaction.
+
+    Args:
+        target_id: Id of the user to like.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "liked" | "match" | "already liked"}``.
+
+    Raises:
+        HTTPException: 400 if ``target_id`` is the current user; 401 if not
+            authenticated; 404 if the user does not exist, a block exists,
+            or the target has no profile picture; 500 if the like fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if str(target_id) == str(user_id):
@@ -329,6 +479,23 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
 
 @router.delete("/users/{target_id}/like")
 async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Remove the current user's like on another user.
+
+    Notifies the target with "unlike" and recalculates their fame rating.
+
+    Args:
+        target_id: Id of the user whose like is removed.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "unliked"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 404 if there was no like
+            to remove; 500 if the operation fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     try:
@@ -353,6 +520,25 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
 
 @router.post("/users/{target_id}/block")
 async def block_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Block a user.
+
+    Records the block (blocking twice is harmless) and deletes any like
+    between the two users in both directions, which also ends a match.
+
+    Args:
+        target_id: Id of the user to block.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "user blocked"}``.
+
+    Raises:
+        HTTPException: 400 if ``target_id`` is the current user; 401 if not
+            authenticated; 404 if the user does not exist; 500 if the block
+            fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if str(target_id) == str(user_id):
@@ -383,6 +569,23 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
 
 @router.delete("/users/{target_id}/block")
 async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Remove a block placed by the current user.
+
+    The likes deleted when the block was created are not restored.
+
+    Args:
+        target_id: Id of the user to unblock.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "user unblocked"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 404 if the user was not
+            blocked; 500 if the operation fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     try:
@@ -405,6 +608,25 @@ async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(
 
 @router.post("/users/{target_id}/report")
 async def report_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Report a user for abuse.
+
+    Expects a JSON body with an optional string ``reason``. Each user can
+    report another user only once; repeating returns "already reported".
+
+    Args:
+        target_id: Id of the user to report.
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "user reported" | "already reported"}``.
+
+    Raises:
+        HTTPException: 400 if ``target_id`` is the current user or
+            ``reason`` is not a string; 401 if not authenticated; 404 if
+            the user does not exist; 500 if the report fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if str(target_id) == str(user_id):

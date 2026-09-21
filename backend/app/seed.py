@@ -27,6 +27,14 @@ TAGS = [
 
 
 def generate_user() -> dict:
+    """Generate the data of one random fake user.
+
+    Returns:
+        A mapping of ``users`` column to value: unique email and names, a
+        hashed random password, a birth date (18 to 60 years old), bio,
+        gender, orientation and coordinates. ``profile_complete`` and
+        ``verified`` are already True.
+    """
     user = {
             "email": fake.unique.email(),
             "first_name": fake.unique.first_name(),
@@ -45,6 +53,14 @@ def generate_user() -> dict:
 
 
 def seed():
+    """Insert 500 fake users, each with 1 to 5 random tags.
+
+    Missing tags are created on the fly and each user is committed on its
+    own. Progress is printed every 100 users. A user that fails to insert is
+    reported and rolled back without stopping the run, so fewer than 500 rows
+    may end up in the database. Uses a synchronous connection built from
+    ``DATABASE_URL``.
+    """
     conn = psycopg.connect(DATABASE_URL)
     for i in range(500):
         try:
