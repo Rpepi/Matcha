@@ -23,6 +23,24 @@ DUMMY_HASH = ph.hash("dummy")
 
 
 async def authenticate_user(email: str, password: str, conn: AsyncConnection) -> tuple:
+    """Verify an email/password pair and return the user's identity.
+
+    A password verification is always performed, against a dummy hash when
+    the email is unknown, so response time does not reveal whether an
+    account exists.
+
+    Args:
+        email: Email address submitted at login.
+        password: Plaintext password submitted at login.
+        conn: Database connection.
+
+    Returns:
+        A tuple ``(user_id, profile_complete)`` with the id as a string.
+
+    Raises:
+        HTTPException: 401 if the email is unknown or the password is wrong;
+            403 if the email address is not verified yet.
+    """
     cursor = await conn.execute(
         "SELECT id, password_hash, verified, profile_complete FROM users WHERE email = %s", (email,)
     )
@@ -39,6 +57,26 @@ async def authenticate_user(email: str, password: str, conn: AsyncConnection) ->
 
 @router.post("/auth/login")
 async def login(request: Request, response: Response, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Log a user in and open a session.
+
+    Expects a JSON body ``{"email": str, "password": str}``. On success the
+    session cookie is set on the response.
+
+    Args:
+        request: Incoming request with the JSON body.
+        response: Response on which the session cookie is set.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A dict with the user's ``id``, ``email`` and ``profile_complete``.
+
+    Raises:
+        HTTPException: 400 if a field is missing, empty or not a string, or
+            the body is not valid JSON; 401 on invalid credentials; 403 if
+            the email is not verified; 415 if the content type is not JSON;
+            503 if the session cannot be stored.
+    """
 
     body = await require_json(request) # will raise exception if not json format
 
@@ -61,6 +99,19 @@ async def login(request: Request, response: Response, redis: redis.Redis = Depen
 
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response, redis: redis.Redis = Depends(get_redis)):
+    """Log the user out.
+
+    Deletes the server-side session referenced by the cookie (if any) and
+    clears the cookie. Succeeds even when no valid session exists.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        response: Response on which the cookie is cleared.
+        redis: Redis client (injected dependency).
+
+    Returns:
+        ``{"message": "Logged out"}``.
+    """
     cookie = request.cookies.get("session")
     if cookie and "$" in cookie:
         session_id = cookie.split("$")[0]
@@ -71,6 +122,22 @@ async def logout(request: Request, response: Response, redis: redis.Redis = Depe
 
 @router.post("/auth/forgot-password")
 async def forgot_password(request: Request, conn: AsyncConnection = Depends(get_db)):
+    """Send a password-reset email if the address belongs to an account.
+
+    Expects a JSON body ``{"email": str}``. The reply is the same whether or
+    not the address is registered, so it cannot be used to discover which
+    emails have an account.
+
+    Args:
+        request: Incoming request with the JSON body.
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A generic confirmation message.
+
+    Raises:
+        HTTPException: 400 if ``email`` is missing or not a string.
+    """
     
     body = await require_json(request)
 
@@ -91,6 +158,25 @@ async def forgot_password(request: Request, conn: AsyncConnection = Depends(get_
 
 @router.post("/auth/reset-password")
 async def reset_password(request: Request, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Set a new password using a reset token.
+
+    Expects a JSON body ``{"token": str, "new_password": str}``. The token
+    must be a valid ``password-reset`` token less than 30 minutes old and
+    not used before (used tokens are remembered in Redis for 30 minutes).
+
+    Args:
+        request: Incoming request with the JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "Password updated. You can now log in."}``.
+
+    Raises:
+        HTTPException: 400 if a field is missing or not a string, the
+            password is too weak or too common, or the token is invalid,
+            expired or already used.
+    """
 
     body = await require_json(request)
 
@@ -124,6 +210,26 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
 
 @router.post("/auth/register")
 async def register(request: Request, response: Response, conn: AsyncConnection = Depends(get_db)):
+    """Create an account and send the verification email.
+
+    Expects a JSON body with ``email``, ``password``, ``first_name`` and
+    ``last_name``. The password is hashed with Argon2id and the account is
+    created unverified.
+
+    Args:
+        request: Incoming request with the JSON body.
+        response: Unused.
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A message asking the user to check their email.
+
+    Raises:
+        HTTPException: 400 if a field is missing, empty or not a string, or
+            the email format is invalid; 409 if the email is already taken.
+        Exception: If the verification email cannot be sent. The account
+            has already been created at that point.
+    """
 
     body = await require_json(request)
     
@@ -167,6 +273,21 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
 
 @router.get("/auth/verify")
 async def verify_email(request: Request, conn: AsyncConnection = Depends(get_db)):
+    """Mark an email address as verified.
+
+    Reads the ``token`` query parameter, which must be a valid
+    ``email-verify`` token less than one hour old.
+
+    Args:
+        request: Incoming request carrying the ``token`` query parameter.
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "Email verified. You can now log in."}``.
+
+    Raises:
+        HTTPException: 400 if the token is missing, invalid or expired.
+    """
     token = request.query_params.get("token")
     if not token:   
         raise HTTPException(status_code=400, detail="Missing token")
@@ -184,6 +305,20 @@ async def verify_email(request: Request, conn: AsyncConnection = Depends(get_db)
 
 @router.get("/auth/me")
 async def verify_auth(request: Request, redis: redis.Redis = Depends(get_redis)):
+    """Return the id of the authenticated user.
+
+    The frontend's ``ProtectedRoute`` calls this to check the session.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+
+    Returns:
+        ``{"id": user_id}``.
+
+    Raises:
+        HTTPException: 401 if the user is not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     return {"id": user_id }
 

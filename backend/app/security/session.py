@@ -18,6 +18,21 @@ DEV_MODE = os.getenv("ENV", "production") != "production"
 
 
 async def create_session(response: Response, user_id: int, conn: Redis): 
+    """Create a session for a user and set the session cookie.
+
+    Generates a random session id, stores ``session:<id>`` -> ``user_id`` in
+    Redis for 7 days and sets a ``session`` cookie of the form
+    ``<id>$<hmac_sha256>``. The cookie is httponly, samesite=strict and
+    secure unless ``ENV`` is set to something other than "production".
+
+    Args:
+        response: Response on which the cookie is set.
+        user_id: Id of the authenticated user.
+        conn: Redis client used to store the session.
+
+    Raises:
+        HTTPException: 503 if Redis cannot store the session.
+    """
     session_id = secrets.token_hex(32)
     session_hash = hmac.new(SECRET.encode(), session_id.encode(), digestmod=hashlib.sha256).hexdigest()
     cookie_value = session_id + "$" + session_hash
@@ -38,6 +53,22 @@ async def create_session(response: Response, user_id: int, conn: Redis):
     )
 
 async def get_current_user_id(cookie: str, redis: Redis) -> str:
+    """Resolve a session cookie to the id of the logged-in user.
+
+    Splits the cookie into session id and HMAC, checks the signature in
+    constant time, then looks up ``session:<id>`` in Redis.
+
+    Args:
+        cookie: Raw value of the ``session`` cookie (``None`` if absent).
+        redis: Redis client holding the sessions.
+
+    Returns:
+        The user id stored in the session, as a string.
+
+    Raises:
+        HTTPException: 401 if the cookie is missing or malformed, the
+            signature is invalid, or the session is unknown or expired.
+    """
     if not cookie or "$" not in cookie:
         raise HTTPException(status_code=401, detail="Not Authenticated")
     

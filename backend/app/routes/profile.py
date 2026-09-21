@@ -19,6 +19,24 @@ router = APIRouter()
 
 @router.get("/profile/me")
 async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Return the current user's own profile.
+
+    Includes private fields (email, coordinates, ``profile_complete``,
+    ``created_at``) as well as the tag names and the photos.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A dict of the user's columns plus ``tags`` (names) and ``photos``
+        (dicts with ``path``, ``is_profile`` and ``position``).
+
+    Raises:
+        HTTPException: 401 if not authenticated or the user no longer
+            exists.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
@@ -51,6 +69,29 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 
 @router.put("/profile/me")
 async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Update the current user's profile and/or tags.
+
+    Expects a JSON body with any of ``bio``, ``orientation``, ``city``,
+    ``first_name``, ``last_name`` (max 50 characters), ``email`` (max 100),
+    ``gender``, ``birth_date`` (YYYY-MM-DD, at least 16 years old) and
+    ``tags`` (existing tag names, max 5). The profile becomes complete once
+    gender, birth date and a location (city or coordinates) are all set.
+    Changing the email marks the account unverified and sends a new
+    verification email to the new address.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "profile updated"}``.
+
+    Raises:
+        HTTPException: 400 if no field is given or a value is invalid; 401
+            if not authenticated; 409 if the email is already taken; 500 if
+            the update fails.
+    """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -139,6 +180,23 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 
 @router.put("/profile/location")
 async def update_location(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Set the current user's GPS coordinates.
+
+    Expects a JSON body ``{"latitude": number, "longitude": number}``. The
+    profile becomes complete if gender and birth date are already set.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "Location updated"}``.
+
+    Raises:
+        HTTPException: 400 if a coordinate is missing, not a number or out
+            of range; 401 if not authenticated; 500 if the update fails.
+    """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -179,8 +237,57 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
     return {"message": "Location updated"}
 
 
+@router.get("/tags")
+async def list_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List the available tags, optionally filtered.
+
+    With the ``search`` query parameter, returns up to 20 tags whose name
+    contains it (case-insensitive). Without it, returns the first 100 tags
+    in alphabetical order.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and the
+            optional ``search`` query parameter.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"tags": [name, ...]}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
+    await get_current_user_id(request.cookies.get("session"), redis)
+
+    search = request.query_params.get("search")
+
+    if search:
+        cursor = await conn.execute(
+            "SELECT name FROM tags WHERE name ILIKE %s ORDER BY name LIMIT 20",
+            (f"%{search.strip()}%",)
+        )
+    else:
+        cursor = await conn.execute("SELECT name FROM tags ORDER BY name LIMIT 100")
+
+    rows = await cursor.fetchall()
+    return {"tags": [r["name"] for r in rows]}
+
+
 @router.get("/profile/tags")
 async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Return the current user's tags in alphabetical order.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"tags": [name, ...]}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
@@ -193,7 +300,24 @@ async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
     return {"tags": [r["name"] for r in rows]}
 
 
-def _validate_tags(tags) -> list[str]:
+async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
+    """Validate and normalise a list of tag names sent by a client.
+
+    Tags are trimmed and lowercased, and each must already exist in the
+    ``tags`` table.
+
+    Args:
+        conn: Database connection.
+        tags: Raw value from the request body (any type).
+
+    Returns:
+        The normalised tag names.
+
+    Raises:
+        HTTPException: 400 if ``tags`` is not a list, has more than 5
+            entries, contains an empty or non-string entry, or contains an
+            unknown tag.
+    """
     if not isinstance(tags, list):
         raise HTTPException(status_code=400, detail="tags must be a list")
     if len(tags) > 5:
@@ -205,6 +329,16 @@ def _validate_tags(tags) -> list[str]:
 
 
 async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
+    """Replace all of a user's tags with the given ones. Does not commit.
+
+    Deletes the user's ``user_tags`` rows, then inserts one per name. The
+    names must already exist in ``tags`` (see ``_validate_tags``).
+
+    Args:
+        conn: Database connection.
+        user_id: Id of the user whose tags are replaced.
+        tags: Normalised tag names.
+    """
     await conn.execute("DELETE FROM user_tags WHERE user_id = %s", (user_id,))
     for name in tags:
         await conn.execute(
@@ -221,6 +355,23 @@ async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
 
 @router.put("/profile/tags")
 async def put_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Replace the current user's tags.
+
+    Expects a JSON body ``{"tags": [str, ...]}`` with at most 5 existing tag
+    names.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "tags updated"}``.
+
+    Raises:
+        HTTPException: 400 if the tags are invalid; 401 if not
+            authenticated; 500 if the update fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     body = await require_json(request)
 
@@ -240,6 +391,21 @@ async def put_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
 
 @router.delete("/profile/tags/{name}")
 async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Remove one tag from the current user's tags.
+
+    Args:
+        name: Tag name from the URL (trimmed and lowercased).
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A message confirming the removal.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 404 if the user does not
+            have that tag.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
@@ -258,6 +424,19 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
 
 @router.get("/profile/me/visits")
 async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List the visits received on the current user's profile.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A list of dicts with ``id``, ``visitor_id`` and ``created_at``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute(
@@ -270,6 +449,19 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
 @router.get("/profile/me/likes")
 async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List the likes received by the current user.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A list of dicts with ``id``, ``liker_id`` and ``created_at``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute(
@@ -282,6 +474,20 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
 @router.get("/profile/photos")
 async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List the current user's photos.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A list of dicts with ``position``, ``path`` and ``is_profile``,
+        ordered by position.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute(
@@ -294,6 +500,28 @@ async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: 
 
 @router.post("/profile/photos")
 async def upload_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Upload one or more photos for the current user.
+
+    Expects a multipart form with one or more ``photos`` files. A user can
+    have at most 5 photos. Each file must be at most 5 MB, start with a JPEG
+    or PNG signature and be parseable by Pillow. Photos take the lowest free
+    positions (1 to 5), and the first photo of a user who had none becomes
+    the profile photo. All rows are inserted in one transaction.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and the
+            multipart form.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "<n> photo(s) uploaded"}``.
+
+    Raises:
+        HTTPException: 400 if no photo is sent, the 5-photo limit would be
+            exceeded, or a file is too large or not a valid image; 401 if
+            not authenticated; 500 if the upload fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     form = await request.form()
 
@@ -344,6 +572,22 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
 
 @router.get("/profile/photos/{position}")
 async def get_photo(position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Serve one of the current user's photos as a JPEG.
+
+    Args:
+        position: Photo position, from 1 to 5.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        The image file.
+
+    Raises:
+        HTTPException: 400 if the position is out of range; 401 if not
+            authenticated; 404 if there is no photo at that position or the
+            file is missing on disk.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if position < 1 or position > 5:
@@ -365,6 +609,26 @@ async def get_photo(position: int, request: Request, redis: Redis = Depends(get_
 
 @router.delete("/profile/photos/{position}")
 async def delete_photo(position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Delete one of the current user's photos.
+
+    Removes the database row and the file on disk (a failure to remove the
+    file is ignored). If the deleted photo was the profile photo, the
+    remaining photo with the lowest position becomes the profile photo.
+
+    Args:
+        position: Position of the photo to delete, from 1 to 5.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "photo deleted"}``.
+
+    Raises:
+        HTTPException: 400 if the position is out of range; 401 if not
+            authenticated; 404 if there is no photo at that position; 500 if
+            the deletion fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if position < 1 or position > 5:
@@ -407,6 +671,26 @@ async def delete_photo(position: int, request: Request, redis: Redis = Depends(g
 
 @router.put("/profile/photos/{position}/move")
 async def move_photo(position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Move a photo to another position.
+
+    Expects a JSON body ``{"to": int}``. If a photo already sits at the
+    target position, the two photos swap places.
+
+    Args:
+        position: Current position of the photo, from 1 to 5.
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A message describing the move.
+
+    Raises:
+        HTTPException: 400 if ``to`` is missing or not an integer, a
+            position is out of range, or source and target are the same;
+            401 if not authenticated; 404 if there is no photo at the
+            source position; 500 if the move fails.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     body = await require_json(request)

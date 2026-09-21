@@ -12,6 +12,13 @@ MIGRATION_DIR = Path(__file__).resolve().parent
 
 
 def run_migration():
+    """Apply the pending SQL migrations in filename order.
+
+    Creates the ``migrations`` tracking table if needed, then executes every
+    ``.sql`` file of this directory that is not recorded yet, committing and
+    recording its filename after each one. Uses a synchronous psycopg
+    connection built from ``DATABASE_URL``.
+    """
     logger = get_logger(__name__)
     conn = psycopg.connect(DATABASE_URL)
 
