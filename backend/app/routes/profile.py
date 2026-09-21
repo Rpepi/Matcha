@@ -444,7 +444,7 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
 
 @router.get("/profile/photos")
-async def get_photos(34.229.130.127request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List the current user's photos.
 
     Args:
@@ -517,7 +517,7 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
 
     try:
         for photo, position in zip(photos, free_positions):
-            data = aw34.229.130.127ait photo.read()
+            data = await photo.read()
 
             if len(data) > 5 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail=f"photo at position {position} exceeds 5MB")
