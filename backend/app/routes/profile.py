@@ -130,7 +130,7 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     email_changed = "email" in updates
 
     if tags is not None:
-        tags = _validate_tags(tags)
+        tags = await _validate_tags(conn, tags)
 
     try:
         if updates:
@@ -239,24 +239,6 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
 
 @router.get("/tags")
 async def list_tags(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
-    """List the available tags, optionally filtered.
-
-    With the ``search`` query parameter, returns up to 20 tags whose name
-    contains it (case-insensitive). Without it, returns the first 100 tags
-    in alphabetical order.
-
-    Args:
-        request: Incoming request with the ``session`` cookie and the
-            optional ``search`` query parameter.
-        redis: Redis client (injected dependency).
-        conn: Database connection (injected dependency).
-
-    Returns:
-        ``{"tags": [name, ...]}``.
-
-    Raises:
-        HTTPException: 401 if not authenticated.
-    """
     await get_current_user_id(request.cookies.get("session"), redis)
 
     search = request.query_params.get("search")
@@ -301,23 +283,6 @@ async def get_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
 
 
 async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
-    """Validate and normalise a list of tag names sent by a client.
-
-    Tags are trimmed and lowercased, and each must already exist in the
-    ``tags`` table.
-
-    Args:
-        conn: Database connection.
-        tags: Raw value from the request body (any type).
-
-    Returns:
-        The normalised tag names.
-
-    Raises:
-        HTTPException: 400 if ``tags`` is not a list, has more than 5
-            entries, contains an empty or non-string entry, or contains an
-            unknown tag.
-    """
     if not isinstance(tags, list):
         raise HTTPException(status_code=400, detail="tags must be a list")
     if len(tags) > 5:
@@ -325,7 +290,18 @@ async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
     for tag in tags:
         if not isinstance(tag, str) or not tag.strip():
             raise HTTPException(status_code=400, detail="each tag must be a non-empty string")
-    return [tag.strip() for tag in tags]
+
+    normalized = [tag.strip().lower() for tag in tags]
+
+    cursor = await conn.execute("""
+        SELECT name FROM tags WHERE name = ANY(%s)
+    """, (normalized,))
+    rows = await cursor.fetchall()
+    existing = [r["name"] for r in rows]
+    for tag in normalized:
+        if tag not in existing:
+            raise HTTPException(status_code=400, detail=f"unknown tags: {tag}")
+    return normalized
 
 
 async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
@@ -341,10 +317,6 @@ async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
     """
     await conn.execute("DELETE FROM user_tags WHERE user_id = %s", (user_id,))
     for name in tags:
-        await conn.execute(
-            "INSERT INTO tags (name) VALUES (%s) ON CONFLICT (name) DO NOTHING",
-            (name,)
-        )
         cursor = await conn.execute("SELECT id FROM tags WHERE name = %s", (name,))
         tag = await cursor.fetchone()
         await conn.execute(
@@ -375,9 +347,8 @@ async def put_tags(request: Request, redis: Redis = Depends(get_redis), conn: As
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     body = await require_json(request)
 
-    tags = _validate_tags(body.get("tags"))
-
-    try:
+    try: 
+        tags = await _validate_tags(conn, body.get("tags"))
         await _replace_tags(conn, user_id, tags)
         await conn.commit()
     except HTTPException:
@@ -412,7 +383,7 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
         DELETE FROM user_tags
         WHERE user_id = %s AND tag_id = (SELECT id FROM tags WHERE name = %s)
         RETURNING tag_id
-    """, (user_id, name))
+    """, (user_id, name.strip().lower()))
     deleted = await cursor.fetchone()
 
     if deleted is None:
@@ -433,7 +404,7 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     Returns:
         A list of dicts with ``id``, ``visitor_id`` and ``created_at``.
-
+34.229.130.127
     Raises:
         HTTPException: 401 if not authenticated.
     """
@@ -473,7 +444,7 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
 
 @router.get("/profile/photos")
-async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+async def get_photos(34.229.130.127request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List the current user's photos.
 
     Args:
@@ -513,7 +484,7 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             multipart form.
         redis: Redis client (injected dependency).
         conn: Database connection (injected dependency).
-
+34.229.130.127
     Returns:
         ``{"message": "<n> photo(s) uploaded"}``.
 
@@ -546,7 +517,7 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
 
     try:
         for photo, position in zip(photos, free_positions):
-            data = await photo.read()
+            data = aw34.229.130.127ait photo.read()
 
             if len(data) > 5 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail=f"photo at position {position} exceeds 5MB")
