@@ -14,9 +14,34 @@ router = APIRouter()
 
 @router.get("/notifications/stream")
 async def notifications(request: Request, response: Response, redis=Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Stream real-time notifications to the client (Server-Sent Events).
+
+    Subscribes to the Redis channel ``notif:<user_id>`` and forwards each
+    published message as an SSE ``data:`` frame. The subscription is released
+    when the client disconnects or the stream fails.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        response: Unused.
+        redis: Redis client (injected dependency).
+        conn: Unused (injected dependency).
+
+    Returns:
+        A ``text/event-stream`` streaming response.
+
+    Raises:
+        HTTPException: 401 if the user is not authenticated.
+    """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     async def event_generator():
+        """Yield one SSE frame per message published on the user's channel.
+
+        Client disconnection is checked whenever a message arrives.
+
+        Yields:
+            SSE ``data:`` frames, each carrying one JSON notification.
+        """
         pubsub = redis.pubsub()
         await pubsub.subscribe(f"notif:{user_id}")
         try:
@@ -41,6 +66,19 @@ async def notifications(request: Request, response: Response, redis=Depends(get_
 
 
 async def _notify(conn: AsyncConnection, user_id: str, from_user_id: str, type: str, redis: Redis):
+    """Store a notification and push it to the recipient in real time.
+
+    Inserts a row in ``notifications`` and publishes its type and origin as
+    JSON on the Redis channel ``notif:<user_id>``. Does not commit: the
+    caller owns the transaction.
+
+    Args:
+        conn: Database connection.
+        user_id: Id of the recipient.
+        from_user_id: Id of the user who triggered the notification.
+        type: One of "like", "unlike", "match", "visit" or "message".
+        redis: Redis client used to publish the event.
+    """
     await conn.execute(
         "INSERT INTO notifications (user_id, from_user_id, type) VALUES (%s, %s, %s)",
         (user_id, from_user_id, type)

@@ -13,6 +13,12 @@ if not DATABASE_URL:
 
 
 async def open_pool():
+    """Create and open the global PostgreSQL connection pool.
+
+    Builds an ``AsyncConnectionPool`` on ``DATABASE_URL`` holding between 2
+    and 5 connections, configured with ``dict_row`` so rows are dicts, and
+    stores it in the module-level ``pool``.
+    """
     global pool
     pool = AsyncConnectionPool(
         conninfo=DATABASE_URL,
@@ -26,6 +32,7 @@ async def open_pool():
 
 
 async def close_pool():
+    """Close the global connection pool if it was opened."""
     if pool:
         await pool.close()
         logger.info("PostgreSQL connection pool closed")
