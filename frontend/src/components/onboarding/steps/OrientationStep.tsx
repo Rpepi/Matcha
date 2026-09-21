@@ -1,0 +1,31 @@
+import StepPanel from "../StepPanel";
+import { SelectField } from "../../FormControls";
+
+interface OrientationStepProps {
+    orientation: string;
+    setOrientation: (value: string) => void;
+    onBack: () => void;
+    onNext: () => void;
+}
+
+export default function OrientationStep({ orientation, setOrientation, onBack, onNext }: OrientationStepProps) {
+    return (
+        <StepPanel
+            title="Who are you interested in?"
+            nextDisabled={!orientation}
+            onBack={onBack}
+            onNext={onNext}
+        >
+            <SelectField
+                id="orientation"
+                value={orientation}
+                onChange={(e) => setOrientation(e.target.value)}
+            >
+                <option value="" disabled>Choose one</option>
+                <option value="hetero">Hetero</option>
+                <option value="homo">Homo</option>
+                <option value="bi">Bi</option>
+            </SelectField>
+        </StepPanel>
+    );
+}
