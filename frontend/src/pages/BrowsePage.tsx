@@ -6,25 +6,27 @@ import { useItemsPerScreen } from "@/hooks/useItemsPerScreen";
 import ProfileCard from "@/components/ProfileCard";
 import { ROW_MAX_WIDTH, MIN_GAP, CARD_WIDTH } from "@/lib/browseLayout";
 
-const STAGGER_SECONDS = 0.2;
+const STAGGER_SECONDS = 0;
 const SLIDE_SECONDS = 0.4;
-const SLIDE_DISTANCE_PX = 32;
+const EXIT_EXTRA_DELAY_SECONDS = 0.1;
 
 function transitionDurationMs(cardCount: number): number {
-    return (cardCount - 1) * STAGGER_SECONDS * 1000 + SLIDE_SECONDS * 1000;
+    return (cardCount - 1) * STAGGER_SECONDS * 1000 + EXIT_EXTRA_DELAY_SECONDS * 1000 + SLIDE_SECONDS * 1000;
 }
 
 const cardVariants = {
-    hidden: { opacity: 0, y: -SLIDE_DISTANCE_PX },
+    hidden: { y: "100vh",
+		opacity: 0,
+	 },
     visible: (i: number) => ({
-        opacity: 1,
         y: 0,
-        transition: { delay: i * STAGGER_SECONDS, duration: SLIDE_SECONDS },
+		opacity: 1,
+        transition: { delay: i * STAGGER_SECONDS, duration: SLIDE_SECONDS, ease: "easeOut" as const },
     }),
     exit: (i: number) => ({
-        opacity: 0,
-        y: SLIDE_DISTANCE_PX,
-        transition: { delay: i * STAGGER_SECONDS, duration: SLIDE_SECONDS },
+        y: "-100vh",
+		opacity: 0,
+        transition: { delay: i * STAGGER_SECONDS + EXIT_EXTRA_DELAY_SECONDS, duration: SLIDE_SECONDS },
     }),
 };
 
@@ -34,6 +36,14 @@ export default function BrowsePage() {
     const lastWheelAt = useRef(0);
 
     const batch = profiles.slice(cursor, cursor + itemsPerScreen);
+
+    useEffect(() => {
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, []);
 
     useEffect(() => {
         if (profiles.length > 0 && !isLoading && hasMore && cursor + itemsPerScreen >= profiles.length) {
