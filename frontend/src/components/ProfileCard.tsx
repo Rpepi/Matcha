@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import type { BrowseProfile } from "../api/browse";
-import { CARD_WIDTH, CARD_ASPECT_RATIO } from "../lib/browseLayout";
+import { CARD_ASPECT_RATIO } from "../lib/browseLayout";
 
 function placeholderPhotoUrl(profile: BrowseProfile): string {
     const folder = profile.gender === "male" ? "men" : "women";
@@ -12,8 +12,7 @@ export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
     return (
         <Link
             to={`/users/${profile.id}`}
-            className="group flex min-w-0 flex-col"
-            style={{ flex: `0 1 ${CARD_WIDTH}px` }}
+            className="group flex h-full w-full flex-col"
         >
             <div
                 className="relative w-full overflow-hidden rounded-[55px] bg-grey/10"
