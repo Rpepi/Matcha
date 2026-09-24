@@ -19,4 +19,7 @@ RUN mkdir -p /backend/uploads
 
 EXPOSE 5000
 
-CMD ["uvicorn", "app.wsgi:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+# --ws-max-size: chat frames above 16 KiB are refused (close code 1009). A
+# 1000-character message escaped as \uXXXX pairs is ~12 KiB; uvicorn's
+# default is 16 MiB.
+CMD ["uvicorn", "app.wsgi:app", "--host", "0.0.0.0", "--port", "5000", "--ws-max-size", "16384", "--reload"]
