@@ -26,19 +26,32 @@ def make_png_bytes(mode="RGB", size=(50, 50)):
     return buf.getvalue()
 
 
-def make_request(content_type="application/json", body=b'{"x": 1}', raise_on_json=False):
-    """Minimal async-compatible mock of FastAPI Request."""
-    async def json():
-        if raise_on_json:
-            raise ValueError("bad json")
-        import json as _json
-        return _json.loads(body)
+def make_request(content_type="application/json", body=b'{"x": 1}', raise_on_json=False,
+                 chunks=None, content_length=None):
+    """Minimal async-compatible mock of FastAPI Request.
+
+    ``require_json`` reads ``request.stream()``, so the body is served as
+    chunks: ``chunks`` if given, otherwise the whole ``body`` in one piece.
+    ``raise_on_json`` is kept for old tests: it swaps the body for bytes
+    that are not JSON.
+    """
+    if raise_on_json:
+        body = b"not json {"
+
+    async def stream():
+        for chunk in (chunks if chunks is not None else [body]):
+            yield chunk
+
+    headers = {"content-type": content_type}
+    if content_length is not None:
+        headers["content-length"] = str(content_length)
 
     class _Req:
-        headers = {"content-type": content_type}
+        pass
 
     r = _Req()
-    r.json = json
+    r.headers = headers
+    r.stream = stream
     return r
 
 
@@ -114,6 +127,61 @@ class TestRequireJson:
         from app.utils import require_json
         req = make_request(body=b'{}')
         assert await require_json(req) == {}
+
+    @pytest.mark.parametrize("body", [b'[1, 2]', b'"text"', b'42', b'null', b'true', b'[]'])
+    async def test_non_object_body_raises_400(self, body):
+        from app.utils import require_json
+        with pytest.raises(HTTPException) as exc:
+            await require_json(make_request(body=body))
+        assert exc.value.status_code == 400
+
+    @pytest.mark.parametrize("body", [b'', b'{', b'{"a":}', b'\xff\xfe', b'{"a": NaN}', b'{"a": Infinity}', b'{"a": -Infinity}'])
+    async def test_malformed_body_raises_400(self, body):
+        from app.utils import require_json
+        with pytest.raises(HTTPException) as exc:
+            await require_json(make_request(body=body))
+        assert exc.value.status_code == 400
+
+    async def test_deeply_nested_body_raises_400(self):
+        from app.utils import require_json
+        body = b"[" * 30_000 + b"]" * 30_000  # 60 KB: under the size cap, over the recursion limit
+        with pytest.raises(HTTPException) as exc:
+            await require_json(make_request(body=body))
+        assert exc.value.status_code == 400
+
+    async def test_oversized_content_length_raises_413_without_reading(self):
+        from app.utils import require_json, MAX_JSON_BYTES
+        req = make_request(body=b'{}', content_length=MAX_JSON_BYTES + 1)
+        with pytest.raises(HTTPException) as exc:
+            await require_json(req)
+        assert exc.value.status_code == 413
+
+    async def test_oversized_body_without_content_length_raises_413(self):
+        """Chunked uploads send no Content-Length; the cap must still hold."""
+        from app.utils import require_json, MAX_JSON_BYTES
+        chunk = b" " * 8192
+        chunks = [chunk] * (MAX_JSON_BYTES // len(chunk) + 2)
+        with pytest.raises(HTTPException) as exc:
+            await require_json(make_request(chunks=chunks))
+        assert exc.value.status_code == 413
+
+    async def test_body_split_across_chunks_is_reassembled(self):
+        from app.utils import require_json
+        req = make_request(chunks=[b'{"na', b'me": "al', b'ice"}'])
+        assert await require_json(req) == {"name": "alice"}
+
+    async def test_body_exactly_at_the_limit_is_accepted(self):
+        from app.utils import require_json, MAX_JSON_BYTES
+        filler = MAX_JSON_BYTES - len(b'{"a": ""}')
+        body = b'{"a": "' + b"x" * filler + b'"}'
+        assert len(body) == MAX_JSON_BYTES
+        assert (await require_json(make_request(body=body)))["a"] == "x" * filler
+
+    async def test_lone_surrogate_escape_is_parsed_not_crashed(self):
+        """JSON allows "\\ud800"; require_json returns it, clean_str refuses it."""
+        from app.utils import require_json
+        data = await require_json(make_request(body=b'{"a": "\\ud800"}'))
+        assert data["a"] == "\ud800"
 
 
 # ── process_photo ─────────────────────────────────────────────────────────────

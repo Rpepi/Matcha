@@ -2,13 +2,15 @@ import asyncio
 import json
 import os
 from collections import defaultdict
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from starlette.websockets import WebSocketState
 from app.security.session import get_current_user_id
+from app.validation import clean_str, MAX_MESSAGE, MAX_ID
 from app.db import pool as pool_module
 from app.log import get_logger
 from app.routes.notifications import insert_notification, publish_notification
+from app.security.rate_limit import messageLimiter
 
 logger = get_logger(__name__)
 
@@ -109,6 +111,32 @@ async def _is_mutual_match(conn, a: int, b: int) -> bool:
     return row["liked_by_me"] and row["liked_by_them"]
 
 
+def parse_chat_frame(raw: str) -> str:
+    """Validate one text frame sent by a chat client.
+
+    The frame must be a JSON object whose ``content`` is a string of at most
+    ``MAX_MESSAGE`` characters without control characters (other than
+    newlines). Surrounding whitespace is stripped.
+
+    Args:
+        raw: The text of the frame.
+
+    Returns:
+        The message content to save.
+
+    Raises:
+        HTTPException: 400 if the frame is not valid JSON, not an object, or
+            its ``content`` is missing or unacceptable.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise HTTPException(status_code=400, detail="message must be valid JSON")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="message must be a JSON object")
+    return clean_str(data.get("content"), "content", MAX_MESSAGE, multiline=True)
+
+
 async def save_message(conn, sender_id: int, target_id: int, content: str) -> dict:
     """Insert a chat message. Does not commit.
 
@@ -135,12 +163,16 @@ async def chat_setup(websocket: WebSocket, target_id: int):
     """WebSocket endpoint for a one-to-one chat between matched users.
 
     Authenticates the user from the session cookie and closes the socket
-    with code 1008 (before accepting it) unless both users liked each other.
+    with code 1008 (before accepting it) if ``target_id`` cannot be a user
+    id or unless both users liked each other.
     Otherwise the socket is accepted, subscribed to the room's Redis channel
-    and every message published there is relayed to it. Each JSON frame
-    received from the client must carry a ``content`` field: the message is
+    and every message published there is relayed to it. Each text frame
+    received from the client must be a JSON object with a ``content``
+    string (see ``parse_chat_frame``): the message is
     saved, the recipient gets a "message" notification and the message is
-    published to the room so both participants receive it. If either user
+    published to the room so both participants receive it. A frame that
+    fails validation is answered with ``{"type": "error", "detail": ...}``
+    to the sender only and the socket stays open. If either user
     unlikes or blocks the other, ``routes/users.py`` publishes an "unmatch"
     event on the same room channel (see ``publish_unmatch``), which closes
     this socket even if the client stays silent. Subscription and background
@@ -155,6 +187,9 @@ async def chat_setup(websocket: WebSocket, target_id: int):
         Exception: Unexpected errors are logged, then re-raised.
     """
     if websocket.headers.get("origin") != FRONTEND_URL:
+        await websocket.close(code=1008)
+        return
+    if not 1 <= target_id <= MAX_ID:
         await websocket.close(code=1008)
         return
     redis = websocket.app.state.redis
@@ -181,11 +216,29 @@ async def chat_setup(websocket: WebSocket, target_id: int):
             await websocket.send_json(event["data"])
 
     async def receive_loop():
-        """Read chat messages from the client and broadcast them to the room."""
+        """Read chat messages from the client and broadcast them to the room.
+
+        A frame that is not valid is answered with an ``{"type": "error"}``
+        frame to the sender only; the socket stays open.
+        """
         while True:
-            data = await websocket.receive_json()
+            try:
+                raw = await websocket.receive_text()
+            except KeyError:  # binary frame: it has no "text" entry
+                raw = None
+            # Every frame counts against the limit, well-formed or not: an
+            # invalid or binary frame still costs a reply.
+            await messageLimiter(websocket)
+            if raw is None:
+                await websocket.send_json({"type": "error", "detail": "only text frames are supported"})
+                continue
+            try:
+                content = parse_chat_frame(raw)
+            except HTTPException as e:
+                await websocket.send_json({"type": "error", "detail": e.detail})
+                continue
             async with pool_module.pool.connection() as conn:
-                msg = await save_message(conn, sender_id, target_id, data["content"])
+                msg = await save_message(conn, sender_id, target_id, content)
                 await insert_notification(conn, target_id, sender_id, "message")
                 await conn.commit()
             await publish_notification(target_id, sender_id, "message", redis)

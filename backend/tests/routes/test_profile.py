@@ -234,7 +234,7 @@ class TestPutProfileLocation:
         mock_redis.get = AsyncMock(return_value="1")
         res = await auth_client.put("/profile/location", json={"latitude": 91.0, "longitude": 2.3})
         assert res.status_code == 400
-        assert "GPS" in res.json()["detail"]
+        assert "latitude" in res.json()["detail"]
 
     async def test_out_of_range_longitude_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -642,7 +642,7 @@ class TestMovePhoto:
         mock_redis.get = AsyncMock(return_value="1")
         res = await auth_client.put("/profile/photos/1/move", json={})
         assert res.status_code == 400
-        assert "'to'" in res.json()["detail"]
+        assert "to must be an integer" in res.json()["detail"]
 
     async def test_non_integer_to_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

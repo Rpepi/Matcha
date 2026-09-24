@@ -11,7 +11,12 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.token import generate_verification_token, send_verification_email
+from app.security.rate_limit import uploadPhotoLimiter
 from app.utils import require_json, is_valid_image, process_photo
+from app.validation import (
+    clean_str, clean_email, clean_choice, clean_int, clean_float,
+    GENDERS, ORIENTATIONS, MAX_NAME, MAX_BIO, MAX_CITY, MAX_TAG, MAX_SEARCH,
+)
 from app.log import get_logger
 
 logger = get_logger(__name__)
@@ -72,10 +77,14 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Update the current user's profile and/or tags.
 
-    Expects a JSON body with any of ``bio``, ``orientation``, ``city``,
-    ``first_name``, ``last_name`` (max 50 characters), ``email`` (max 100),
-    ``gender``, ``birth_date`` (YYYY-MM-DD, at least 16 years old) and
-    ``tags`` (existing tag names, max 5). The profile becomes complete once
+    Expects a JSON body with any of ``bio`` (max 500 characters, or null),
+    ``orientation`` (``homo``, ``hetero`` or ``bi``), ``city`` (max 100, or
+    null), ``first_name``, ``last_name`` (max 50 characters), ``email``
+    (max 100, well-formed), ``gender`` (``male``, ``female`` or ``other``),
+    ``birth_date`` (YYYY-MM-DD, at least 16 years old) and ``tags``
+    (existing tag names, max 5; duplicates are merged). Strings may not
+    contain control characters (newlines are allowed in ``bio``). The
+    profile becomes complete once
     gender, birth date and a location (city or coordinates) are all set.
     Changing the email marks the account unverified and sends a new
     verification email to the new address.
@@ -89,9 +98,10 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         ``{"message": "profile updated"}``.
 
     Raises:
-        HTTPException: 400 if no field is given or a value is invalid; 401
-            if not authenticated; 409 if the email is already taken; 500 if
-            the update fails.
+        HTTPException: 400 if no field is given, a value is invalid or too
+            long, or the body is not a JSON object; 401 if not
+            authenticated; 409 if the email is already taken; 413 if the
+            body is too large; 500 if the update fails.
     """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
@@ -103,17 +113,19 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     if not updates and tags is None:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    field_max_lengths = {"first_name": 50, "last_name": 50, "email": 100}
-    for field, max_length in field_max_lengths.items():
+    for field in ("first_name", "last_name"):
         if field in updates:
-            value = updates[field]
-            if not isinstance(value, str) or not value.strip():
-                raise HTTPException(status_code=400, detail=f"{field} must be a non-empty string")
-            if len(value) > max_length:
-                raise HTTPException(status_code=400, detail=f"{field} must be at most {max_length} characters")
-
-    if "gender" in updates and not isinstance(updates["gender"], str):
-        raise HTTPException(status_code=400, detail="gender must be a string")
+            updates[field] = clean_str(updates[field], field, MAX_NAME)
+    if "email" in updates:
+        updates["email"] = clean_email(updates["email"])
+    if "gender" in updates:
+        updates["gender"] = clean_choice(updates["gender"], "gender", GENDERS)
+    if "orientation" in updates:
+        updates["orientation"] = clean_choice(updates["orientation"], "orientation", ORIENTATIONS)
+    if "bio" in updates:
+        updates["bio"] = clean_str(updates["bio"], "bio", MAX_BIO, min_len=0, multiline=True, nullable=True)
+    if "city" in updates:
+        updates["city"] = clean_str(updates["city"], "city", MAX_CITY, nullable=True)
 
     if "birth_date" in updates:
         if not isinstance(updates["birth_date"], str):
@@ -195,22 +207,17 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
         ``{"message": "Location updated"}``.
 
     Raises:
-        HTTPException: 400 if a coordinate is missing, not a number or out
-            of range; 401 if not authenticated; 500 if the update fails.
+        HTTPException: 400 if a coordinate is missing, not a finite number
+            or out of range, or the body is not a JSON object; 401 if not
+            authenticated; 500 if the update fails.
     """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    try:
-        latitude = body["latitude"]
-        longitude = body["longitude"]
-    except Exception:
+    if "latitude" not in body or "longitude" not in body:
         raise HTTPException(status_code=400, detail="Latitude and longitude are required")
-
-    if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
-        raise HTTPException(status_code=400, detail="Latitude and longitude must be numbers")
-    if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
-        raise HTTPException(status_code=400, detail="Invalid GPS coordinates")
+    latitude = clean_float(body["latitude"], "latitude", -90, 90)
+    longitude = clean_float(body["longitude"], "longitude", -180, 180)
 
     try:
         cursor = await conn.execute(
@@ -243,11 +250,13 @@ async def list_tags(request: Request, redis: Redis = Depends(get_redis), conn: A
     await get_current_user_id(request.cookies.get("session"), redis)
 
     search = request.query_params.get("search")
+    if search is not None:
+        search = clean_str(search, "search", MAX_SEARCH, min_len=0)
 
     if search:
         cursor = await conn.execute(
             "SELECT name FROM tags WHERE name ILIKE %s ORDER BY name LIMIT 20",
-            (f"%{search.strip()}%",)
+            (f"%{search}%",)
         )
     else:
         cursor = await conn.execute("SELECT name FROM tags ORDER BY name LIMIT 100")
@@ -292,7 +301,9 @@ async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
         if not isinstance(tag, str) or not tag.strip():
             raise HTTPException(status_code=400, detail="each tag must be a non-empty string")
 
-    normalized = [tag.strip().lower() for tag in tags]
+    # dict.fromkeys drops duplicates (keeping order): user_tags' primary key
+    # would otherwise reject the second copy of a repeated tag with a 500.
+    normalized = list(dict.fromkeys(clean_str(tag, "tag", MAX_TAG).lower() for tag in tags))
 
     cursor = await conn.execute("""
         SELECT name FROM tags WHERE name = ANY(%s)
@@ -379,12 +390,13 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
             have that tag.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
+    name = clean_str(name, "tag", MAX_TAG)
 
     cursor = await conn.execute("""
         DELETE FROM user_tags
         WHERE user_id = %s AND tag_id = (SELECT id FROM tags WHERE name = %s)
         RETURNING tag_id
-    """, (user_id, name.strip().lower()))
+    """, (user_id, name.lower()))
     deleted = await cursor.fetchone()
 
     if deleted is None:
@@ -469,7 +481,7 @@ async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: 
     return [dict(r) for r in rows]
 
 
-@router.post("/profile/photos")
+@router.post("/profile/photos", dependencies=[Depends(uploadPhotoLimiter)])
 async def upload_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Upload one or more photos for the current user.
 
@@ -674,10 +686,7 @@ async def move_photo(position: int, request: Request, redis: Redis = Depends(get
 
     body = await require_json(request)
 
-    try:
-        target = int(body["to"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="'to' field is required and must be an integer")
+    target = clean_int(body.get("to"), "to", 1, 5)
 
     if position < 1 or position > 5 or target < 1 or target > 5:
         raise HTTPException(status_code=400, detail="positions must be between 1 and 5")
