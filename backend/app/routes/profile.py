@@ -477,7 +477,11 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
     have at most 5 photos. Each file must be at most 5 MB, start with a JPEG
     or PNG signature and be parseable by Pillow. Photos take the lowest free
     positions (1 to 5), and the first photo of a user who had none becomes
-    the profile photo. All rows are inserted in one transaction.
+    the profile photo. Each photo is committed individually as it's
+    processed, so if one in the batch fails, the ones already processed
+    stay persisted; the error response's ``uploaded`` list says which
+    zero-based indices of the submitted ``photos`` made it in before the
+    failure.
 
     Args:
         request: Incoming request with the ``session`` cookie and the
@@ -490,7 +494,9 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
     Raises:
         HTTPException: 400 if no photo is sent, the 5-photo limit would be
             exceeded, or a file is too large or not a valid image; 401 if
-            not authenticated; 500 if the upload fails.
+            not authenticated; 500 if the upload fails. For errors raised
+            partway through the batch (400 or 500), ``detail`` is
+            ``{"error": <message>, "uploaded": [<indices>]}``.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     form = await request.form()
@@ -513,9 +519,11 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
     )
     used_positions = {r["position"] for r in await cursor.fetchall()}
     free_positions = [p for p in range(1, 6) if p not in used_positions]
-
+    success = set()
     try:
-        for photo, position in zip(photos, free_positions):
+        for i , (photo, position) in enumerate(zip(photos, free_positions)):
+            
+            
             data = await photo.read()
 
             if len(data) > 5 * 1024 * 1024:
@@ -523,19 +531,20 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             if not is_valid_image(data):
                 raise HTTPException(status_code=400, detail=f"photo at position {position}: invalid format")
 
-            path = asyncio.to_thread(process_photo(data, user_id))
+            path = await asyncio.to_thread(process_photo,data, user_id)
             is_first = current_count == 0 and position == free_positions[0]
 
             await conn.execute(
                 "INSERT INTO photos (user_id, path, position, is_profile) VALUES (%s, %s, %s, %s)",
                 (user_id, path, position, is_first)
             )
-        await conn.commit()
-    except HTTPException:
-        raise
+            await conn.commit()
+            success.add(i)
+    except HTTPException as e:
+        raise HTTPException(status_code=e.status_code, detail={"error": e.detail, "uploaded": sorted(success)})
     except Exception:
         logger.exception("Photo upload failed for user %s", user_id)
-        raise HTTPException(status_code=500, detail="upload failed")
+        raise HTTPException(status_code=500, detail={"error": "upload failed", "uploaded": sorted(success)})
 
     return {"message": f"{len(photos)} photo(s) uploaded"}
 

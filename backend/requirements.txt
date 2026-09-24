@@ -12,3 +12,5 @@ redis
 requests
 google-auth
 httpx
+fastapi-limiter
+pyrate-limiter

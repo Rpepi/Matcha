@@ -63,8 +63,8 @@ def mock_redis():
 async def client(mock_db, mock_redis):
     """Unauthenticated HTTP test client."""
     with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
-         patch("app.db.pool.close_pool", new_callable=AsyncMock), \
-         patch("redis.asyncio.Redis", return_value=mock_redis):
+        patch("app.db.pool.close_pool", new_callable=AsyncMock), \
+        patch("redis.asyncio.Redis", return_value=mock_redis):
 
         application = _build_app(mock_db, mock_redis)
 
@@ -78,8 +78,8 @@ async def client(mock_db, mock_redis):
 async def auth_client(mock_db, mock_redis):
     """Authenticated HTTP test client with session cookie preset."""
     with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
-         patch("app.db.pool.close_pool", new_callable=AsyncMock), \
-         patch("redis.asyncio.Redis", return_value=mock_redis):
+        patch("app.db.pool.close_pool", new_callable=AsyncMock), \
+        patch("redis.asyncio.Redis", return_value=mock_redis):
 
         application = _build_app(mock_db, mock_redis)
 

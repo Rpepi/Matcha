@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,9 +14,21 @@ def make_session_cookie(session_id: str = "testsession") -> str:
     return f"{session_id}${h}"
 
 
-def make_pubsub():
-    """Pubsub mock whose listen() immediately ends (no messages)."""
+def make_pubsub(hang: bool = False):
+    """Pubsub mock.
+
+    By default listen() ends immediately (no messages). With hang=True it
+    blocks forever instead, until the handler cancels it in its `finally` -
+    needed by tests where the receive loop, not the pubsub listener, must
+    be the task that finishes first in the handler's
+    `asyncio.wait(..., FIRST_COMPLETED)`.
+    """
     async def _empty():
+        if False:
+            yield
+
+    async def _hang():
+        await asyncio.Future()
         if False:
             yield
 
@@ -23,7 +36,7 @@ def make_pubsub():
     p.subscribe = AsyncMock()
     p.unsubscribe = AsyncMock()
     p.aclose = AsyncMock()
-    p.listen = MagicMock(side_effect=lambda: _empty())
+    p.listen = MagicMock(side_effect=_hang if hang else _empty)
     return p
 
 
@@ -181,7 +194,10 @@ class TestChatWebSocket:
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
                     "/chat/2",
-                    headers={"Cookie": f"session={make_session_cookie()}"},
+                    headers={
+                        "Cookie": f"session={make_session_cookie()}",
+                        "Origin": "http://localhost:5173",
+                    },
                 ):
                     pass  # clean disconnect triggers WebSocketDisconnect in handler
 
@@ -198,12 +214,15 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock()
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.db.pool.pool", mock_pool), \
-             patch("app.routes.chat.manager.connect", side_effect=spy_connect):
+            patch("app.db.pool.pool", mock_pool), \
+            patch("app.routes.chat.manager.connect", side_effect=spy_connect):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
                     "/chat/5",
-                    headers={"Cookie": f"session={make_session_cookie()}"},
+                    headers={"Cookie": f"session={make_session_cookie()}",
+                            "Origin": "http://localhost:5173",
+                    },
+                    
                 ):
                     pass
 
@@ -222,14 +241,25 @@ class TestChatWebSocket:
                 with pytest.raises(Exception):
                     with tc.websocket_connect(
                         "/chat/2",
-                        headers={"Cookie": f"session={make_session_cookie()}"},
+                        headers={"Cookie": f"session={make_session_cookie()}",
+                                "Origin": "http://localhost:5173",
+                        },
                     ):
                         pass
 
             mock_connect.assert_not_called()
 
     def test_db_error_logs_and_closes_connection(self, chat_app, mock_redis):
-        """When save_message raises, logger.exception is called and connection closes."""
+        """When save_message raises, logger.exception is called and the
+        room is cleaned up.
+
+        Swaps in a hanging pubsub (see make_pubsub) because the default
+        one's listen() ends immediately, which would otherwise win the
+        handler's FIRST_COMPLETED race before the client's message is
+        ever read.
+        """
+        mock_redis.pubsub = MagicMock(return_value=make_pubsub(hang=True))
+
         error_cursor = AsyncMock()
         error_cursor.fetchone = AsyncMock(side_effect=Exception("db down"))
         mock_conn = AsyncMock()
@@ -240,11 +270,26 @@ class TestChatWebSocket:
              patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.logger") as mock_logger:
             with TestClient(chat_app) as tc:
+                # Whether the handler's re-raised error reaches the client
+                # before or after it closes its end is a race outside this
+                # test's control; either way logger.exception and cleanup
+                # below are what actually matter.
                 try:
                     with tc.websocket_connect(
                         "/chat/2",
-                        headers={"Cookie": f"session={make_session_cookie()}"},
+                        headers={
+                            "Cookie": f"session={make_session_cookie()}",
+                            "Origin": "http://localhost:5173",
+                        },
                     ) as ws:
                         ws.send_json({"content": "trigger error"})
                 except Exception:
                     pass
+
+        mock_logger.exception.assert_called_once()
+        args, kwargs = mock_logger.exception.call_args
+        assert args == ("WebSocket error for user %s", 1)
+        assert str(kwargs["exc_info"]) == "db down"
+
+        from app.routes.chat import manager
+        assert "room:1_2" not in manager.active

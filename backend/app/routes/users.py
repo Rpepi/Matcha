@@ -291,9 +291,14 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
 async def get_user_profile(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return another user's profile and record the visit.
 
-    Side effect: inserts a row in ``visits`` and sends a "visit"
-    notification to the viewed user. If that fails, the error is logged and
-    rolled back, and the profile is still returned.
+    Side effect: upserts a row in ``visits`` keyed on ``(visitor_id,
+    visited_id)`` (see the ``UNIQUE`` constraint in migration 006) and
+    sends a "visit" notification to the viewed user — but only when that
+    upsert actually changes the row, i.e. on the first visit ever, or the
+    first one after the previous visit is more than 15 days old. Repeat
+    views inside that window are silently skipped: no new row, no
+    notification. If the upsert fails, the error is logged and rolled
+    back, and the profile is still returned.
 
     Args:
         target_id: Id of the user to view.
@@ -343,13 +348,22 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     profile["is_match"] = like_status["liked_by_me"] and like_status["liked_by_them"]
 
     try:
-        await conn.execute(
-            "INSERT INTO visits (visitor_id, visited_id) VALUES (%s, %s)",
+        cursor = await conn.execute("""
+            INSERT INTO visits (visitor_id, visited_id, created_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (visitor_id, visited_id)
+            DO UPDATE SET created_at = NOW()
+            WHERE visits.created_at < NOW() - INTERVAL '15 days'
+            RETURNING id
+        """,
             (user_id, target_id)
         )
-        await insert_notification(conn, str(target_id), user_id, "visit")
+        row = await cursor.fetchone()
+        if row:
+            await insert_notification(conn, str(target_id), user_id, "visit")
         await conn.commit()
-        await publish_notification(str(target_id), user_id, "visit", redis)
+        if row:
+            await publish_notification(str(target_id), user_id, "visit", redis)
     except Exception:
         logger.exception("Failed to record visit from user %s to %s", user_id, target_id)
         await conn.rollback()

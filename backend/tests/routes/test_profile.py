@@ -431,7 +431,7 @@ class TestUploadPhotos:
             )
 
         assert res.status_code == 400
-        assert "invalid" in res.json()["detail"]
+        assert "invalid" in res.json()["detail"]["error"]
 
     async def test_file_too_large_returns_400(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -446,7 +446,7 @@ class TestUploadPhotos:
             files=[("photos", ("big.jpg", oversized, "image/jpeg"))],
         )
         assert res.status_code == 400
-        assert "5MB" in res.json()["detail"]
+        assert "5MB" in res.json()["detail"]["error"]
 
     async def test_no_cookie_returns_401(self, client):
         res = await client.post(
