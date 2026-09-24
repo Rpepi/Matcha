@@ -22,6 +22,7 @@ def make_pubsub():
     p = MagicMock()
     p.subscribe = AsyncMock()
     p.unsubscribe = AsyncMock()
+    p.aclose = AsyncMock()
     p.listen = MagicMock(side_effect=lambda: _empty())
     return p
 
@@ -57,11 +58,11 @@ def mock_redis():
 
 @pytest.fixture
 def chat_app(mock_redis):
-    with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
-         patch("app.db.pool.close_pool", new_callable=AsyncMock), \
+    with patch("app.open_pool", new_callable=AsyncMock), \
+         patch("app.close_pool", new_callable=AsyncMock), \
          patch("redis.asyncio.Redis", return_value=mock_redis):
         from app import create_app
-        return create_app()
+        yield create_app()
 
 
 # ── ConnectionManager ─────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock()
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool):
+             patch("app.db.pool.pool", mock_pool):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
                     "/chat/2",
@@ -197,7 +198,7 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock()
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
+             patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.manager.connect", side_effect=spy_connect):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
@@ -215,7 +216,7 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock(mock_conn)
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
+             patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.manager.connect", new=AsyncMock()) as mock_connect:
             with TestClient(chat_app) as tc:
                 with pytest.raises(Exception):
@@ -236,7 +237,7 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock(mock_conn)
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
+             patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.logger") as mock_logger:
             with TestClient(chat_app) as tc:
                 try:

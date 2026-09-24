@@ -1,13 +1,50 @@
 import asyncio
 import json
+import os
 from collections import defaultdict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from redis.asyncio import Redis
+from starlette.websockets import WebSocketState
 from app.security.session import get_current_user_id
-from app.db.pool import pool
+from app.db import pool as pool_module
 from app.log import get_logger
-from app.routes.notifications import _notify
+from app.routes.notifications import insert_notification, publish_notification
 
 logger = get_logger(__name__)
+
+FRONTEND_URL = os.getenv("FRONTEND_URL")
+
+if not FRONTEND_URL:
+    raise RuntimeError("env variable missing or not set")
+
+
+def room_id_for(a: int | str, b: int | str) -> str:
+    """Build the deterministic Redis/manager room id for a pair of users.
+
+    Args:
+        a: Id of the first user.
+        b: Id of the second user.
+
+    Returns:
+        ``room:<min_id>_<max_id>`` so both orderings resolve to the same room.
+    """
+    a, b = int(a), int(b)
+    return f"room:{min(a, b)}_{max(a, b)}"
+
+
+async def publish_unmatch(a: int | str, b: int | str, redis: Redis) -> None:
+    """Tell any open chat websocket between two users that they unmatched.
+
+    Called by ``routes/users.py`` after an unlike or a block. A listener on
+    the room channel (see ``listen_pubsub`` below) reacts by closing the
+    socket, even if neither user sends another chat message.
+
+    Args:
+        a: Id of the first user.
+        b: Id of the second user.
+        redis: Redis client used to publish the event.
+    """
+    await redis.publish(room_id_for(a, b), json.dumps({"type": "unmatch"}))
 
 
 class ConnectionManager:
@@ -103,8 +140,11 @@ async def chat_setup(websocket: WebSocket, target_id: int):
     and every message published there is relayed to it. Each JSON frame
     received from the client must carry a ``content`` field: the message is
     saved, the recipient gets a "message" notification and the message is
-    published to the room so both participants receive it. The subscription
-    and background task are cleaned up when the connection ends.
+    published to the room so both participants receive it. If either user
+    unlikes or blocks the other, ``routes/users.py`` publishes an "unmatch"
+    event on the same room channel (see ``publish_unmatch``), which closes
+    this socket even if the client stays silent. Subscription and background
+    tasks are cleaned up when the connection ends, however it ends.
 
     Args:
         websocket: The client connection.
@@ -114,40 +154,65 @@ async def chat_setup(websocket: WebSocket, target_id: int):
         HTTPException: If the session cookie is missing or invalid.
         Exception: Unexpected errors are logged, then re-raised.
     """
+    if websocket.headers.get("origin") != FRONTEND_URL:
+        await websocket.close(code=1008)
+        return
     redis = websocket.app.state.redis
     sender_id = int(await get_current_user_id(websocket.cookies.get("session"), redis))
-    room_id = f"room:{min(sender_id, target_id)}_{max(sender_id, target_id)}"
+    room_id = room_id_for(sender_id, target_id)
 
-    async with pool.connection() as conn:
+    async with pool_module.pool.connection() as conn:
         if not await _is_mutual_match(conn, sender_id, target_id):
             await websocket.close(code=1008)
             return
 
-        await manager.connect(room_id, websocket)
-        pubsub = redis.pubsub()
-        await pubsub.subscribe(room_id)
+    await manager.connect(room_id, websocket)
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(room_id)
 
-        async def listen_pubsub():
-            """Relay the room's Redis pub/sub messages to this websocket."""
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    await websocket.send_json(json.loads(message["data"]))
+    async def listen_pubsub():
+        """Relay chat messages to this websocket; return on an unmatch event."""
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            event = json.loads(message["data"])
+            if event["type"] == "unmatch":
+                return
+            await websocket.send_json(event["data"])
 
-        pubsub_task = asyncio.create_task(listen_pubsub())
-
-        try:
-            while True:
-                data = await websocket.receive_json()
+    async def receive_loop():
+        """Read chat messages from the client and broadcast them to the room."""
+        while True:
+            data = await websocket.receive_json()
+            async with pool_module.pool.connection() as conn:
                 msg = await save_message(conn, sender_id, target_id, data["content"])
-                await _notify(conn, target_id, sender_id, "message", redis)
+                await insert_notification(conn, target_id, sender_id, "message")
                 await conn.commit()
-                await redis.publish(room_id, json.dumps(msg))
-        except WebSocketDisconnect:
-            pass
-        except Exception:
-            logger.exception("WebSocket error for user %s", sender_id)
-            raise
-        finally:
-            pubsub_task.cancel()
-            await pubsub.unsubscribe(room_id)
-            manager.disconnect(room_id, websocket)
+            await publish_notification(target_id, sender_id, "message", redis)
+            await redis.publish(room_id, json.dumps({"type": "message", "data": msg}))
+
+    pubsub_task = asyncio.create_task(listen_pubsub())
+    receive_task = asyncio.create_task(receive_loop())
+    tasks = {pubsub_task, receive_task}
+
+    error: Exception | None = None
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            exc = task.exception()
+            if exc is None or isinstance(exc, WebSocketDisconnect):
+                continue  # normal exit: client disconnected, or the room's pubsub ended cleanly (unmatch)
+            logger.exception("WebSocket error for user %s", sender_id, exc_info=exc)
+            error = exc
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await pubsub.unsubscribe(room_id)
+        await pubsub.aclose()
+        manager.disconnect(room_id, websocket)
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.close()
+
+    if error is not None:
+        raise error

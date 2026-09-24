@@ -16,18 +16,22 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 serializer = URLSafeTimedSerializer(MAIL_SECRET)
 
-def generate_verification_token(user_id: str) -> str:
+def generate_verification_token(user_id: str, email: str) -> str:
     """Create a signed, timestamped email-verification token.
 
-    The user id is signed with the ``email-verify`` salt.
+    Binds the token to both the user id and the email address it was
+    issued for, with the ``email-verify`` salt. The caller must check the
+    email still matches the account before honoring the token: otherwise a
+    token issued for an old address could verify a different one later.
 
     Args:
         user_id: Id of the user the token is issued for.
+        email: Email address this token verifies.
 
     Returns:
         A URL-safe signed token.
     """
-    return serializer.dumps(user_id, salt="email-verify")
+    return serializer.dumps({"user_id": user_id, "email": email}, salt="email-verify")
 
 def _send_email(to: str, subject: str, body: str):
     """Send a plain-text email through the configured SMTP server.
@@ -49,7 +53,7 @@ def _send_email(to: str, subject: str, body: str):
     msg["To"] = to
     msg.set_content(body)
     try:
-        with smtplib.SMTP(MAIL_HOST, int(MAIL_PORT)) as smtp:
+        with smtplib.SMTP(MAIL_HOST, int(MAIL_PORT), timeout=10) as smtp:
             smtp.send_message(msg)
     except Exception:
         logger.exception("Failed to send email to %s (subject: %s)", to, subject)

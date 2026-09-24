@@ -233,15 +233,16 @@ class TestRegisterRoute:
 # ── /auth/verify ──────────────────────────────────────────────────────────────
 
 class TestVerifyEmailRoute:
-    async def test_valid_token_verifies_user(self, client, mock_db):
+    async def test_valid_token_verifies_user(self, client, mock_db, mock_cursor):
         from app.security.token import generate_verification_token
-        token = generate_verification_token("42")
+        token = generate_verification_token("42", "alice@test.com")
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "alice@test.com"})
 
         resp = await client.get(f"/auth/verify?token={token}")
 
         assert resp.status_code == 200
-        mock_db.execute.assert_called_once()
-        assert "UPDATE users SET verified" in str(mock_db.execute.call_args)
+        assert mock_db.execute.call_count == 2
+        assert "UPDATE users SET verified" in str(mock_db.execute.call_args_list[-1])
 
     async def test_missing_token_returns_400(self, client):
         resp = await client.get("/auth/verify")
@@ -260,6 +261,39 @@ class TestVerifyEmailRoute:
 
         assert resp.status_code == 400
         assert "expired" in resp.json()["detail"].lower()
+
+    async def test_old_format_token_is_rejected_not_crashed(self, client):
+        """A signature-valid token from before email was bound in (a plain
+        user_id string instead of a {user_id, email} dict) must be rejected
+        cleanly, not raise an unhandled TypeError."""
+        from app.security.token import serializer
+        legacy_token = serializer.dumps("42", salt="email-verify")
+
+        resp = await client.get(f"/auth/verify?token={legacy_token}")
+
+        assert resp.status_code == 400
+
+    async def test_already_used_token_returns_400(self, client, mock_redis):
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "alice@test.com")
+        mock_redis.get = AsyncMock(return_value="1")
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 400
+        assert "already been used" in resp.json()["detail"].lower()
+
+    async def test_token_for_old_email_rejected_after_email_change(self, client, mock_cursor):
+        """The vulnerability this fix closes: a token issued for an address
+        the account no longer has must not verify whatever address is
+        currently on the account."""
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "old@test.com")
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "new@test.com"})
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 400
 
 
 # ── /auth/forgot-password ─────────────────────────────────────────────────────
@@ -316,7 +350,7 @@ class TestForgotPasswordRoute:
         """A verify token must not work as a reset token."""
         from app.security.token import generate_verification_token, serializer
         from itsdangerous import BadSignature
-        verify_token = generate_verification_token("1")
+        verify_token = generate_verification_token("1", "a@test.com")
         with pytest.raises(BadSignature):
             serializer.loads(verify_token, salt="password-reset", max_age=1800)
 
@@ -403,7 +437,7 @@ class TestResetPasswordRoute:
     async def test_verify_token_cannot_be_used_for_reset(self, client):
         """Salt isolation: a verify token must be rejected by reset endpoint."""
         from app.security.token import generate_verification_token
-        verify_token = generate_verification_token("1")
+        verify_token = generate_verification_token("1", "a@test.com")
         resp = await client.post("/auth/reset-password", json={
             "token": verify_token,
             "new_password": "NewP@ss123!",
@@ -426,3 +460,45 @@ class TestResetPasswordRoute:
         })
         assert resp2.status_code == 400
         assert "already been used" in resp2.json()["detail"]
+
+    async def test_invalidates_other_sessions(self, client, mock_redis):
+        """A successful reset prunes expired entries from the user's
+        session index, then deletes every remaining session key."""
+        token = self._make_reset_token("1")
+        mock_redis.zrange = AsyncMock(return_value=["abc", "xyz"])
+
+        resp = await client.post("/auth/reset-password", json={
+            "token": token, "new_password": "NewP@ss123!",
+        })
+
+        assert resp.status_code == 200
+        mock_redis.zremrangebyscore.assert_called_once()
+        assert mock_redis.zremrangebyscore.call_args.args[0] == "user_sessions:1"
+        mock_redis.zrange.assert_called_once_with("user_sessions:1", 0, -1)
+        deleted_keys = [c.args[0] for c in mock_redis.delete.call_args_list]
+        assert "session:abc" in deleted_keys
+        assert "session:xyz" in deleted_keys
+
+    async def test_session_cleanup_failure_does_not_fail_the_reset(self, client, mock_redis):
+        """The password is already committed by the time this cleanup runs,
+        so a Redis error here must not turn success into an error."""
+        token = self._make_reset_token("1")
+        mock_redis.zrange = AsyncMock(side_effect=Exception("redis down"))
+
+        resp = await client.post("/auth/reset-password", json={
+            "token": token, "new_password": "NewP@ss123!",
+        })
+
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Password updated. You can now log in."
+
+    async def test_session_cleanup_failure_is_logged(self, client, mock_redis):
+        token = self._make_reset_token("1")
+        mock_redis.zrange = AsyncMock(side_effect=Exception("redis down"))
+
+        with patch("app.routes.authentification.logger") as mock_logger:
+            await client.post("/auth/reset-password", json={
+                "token": token, "new_password": "NewP@ss123!",
+            })
+
+        mock_logger.exception.assert_called_once()

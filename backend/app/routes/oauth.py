@@ -85,16 +85,28 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
     Called after the user accepted (or declined) the consent screen.
 
     Order of operations:
-      1. Bail out on Google's own error/denial, or a malformed callback.
-      2. Verify and consume the anti-CSRF `state` generated in oauth_login.
-      3. Exchange the authorization `code` for an id_token (server-to-server,
-         client_secret never leaves the backend).
-      4. Verify the id_token's signature/issuer/audience/expiry — this is
-         the actual security guarantee that the identity is genuine.
-      5. Find the matching user by email, or create one (no password set,
-         verified=true directly since Google already confirmed the email).
-      6. Open a session and redirect to /browse (existing full profile) or
-         /complete-profile (Google can't provide gender/birth_date/location).
+    1. Bail out on Google's own error/denial, or a malformed callback.
+    2. Verify and consume the anti-CSRF `state` generated in oauth_login.
+    3. Exchange the authorization `code` for an id_token (server-to-server,
+        client_secret never leaves the backend).
+    4. Verify the id_token's signature/issuer/audience/expiry — this is
+        the actual security guarantee that the identity is genuine.
+    5. Find the matching user by email. Three cases:
+        - No row: create one (random unusable password, verified=true
+          directly since Google already confirmed the email).
+        - Row exists and verified: someone already proved control of this
+          email before (our own verify link, or a prior Google login) —
+          Google re-confirming the same thing now is consistent with that,
+          so just log in.
+        - Row exists but unverified: nobody has ever proven control of
+          this address on that account — it may be a real registration
+          still pending its confirmation email, or an account someone else
+          pre-registered with this email to hijack it later. Since Google
+          just proved real ownership, the account is reclaimed for this
+          identity (name, password and verified overwritten) rather than
+          logged into as-is; this closes that pre-registration hijack.
+    6. Open a session and redirect to /browse (existing full profile) or
+        /complete-profile (Google can't provide gender/birth_date/location).
 
     On any failure the browser is redirected back to the frontend login page
     with a short `?error=<code>` — never a raised HTTPException, since the
@@ -189,7 +201,7 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
     # ── 5. Find or create the local account, then open a session ───────────
     try:
         cursor = await conn.execute(
-            "SELECT id, profile_complete FROM users where email = %s", (email,)
+            "SELECT id, profile_complete, verified FROM users where email = %s", (email,)
         )
         row = await cursor.fetchone()
 
@@ -213,17 +225,29 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
             row = await cursor.fetchone()
             user_id = row["id"]
             profile_complete = row["profile_complete"]
+            verified = True  # hardcoded in the INSERT above, not part of RETURNING
             await conn.commit()
         else:
             user_id = row["id"]
             profile_complete = row["profile_complete"]
+            verified = row["verified"]
 
         # gender/orientation/birth_date/location aren't provided by Google,
         # so a brand-new account always starts with profile_complete=false.
-        if profile_complete:
+        if profile_complete and verified:
             response = RedirectResponse(f"{FRONTEND_URL}/browse")
-        else:
+        elif verified:
             response = RedirectResponse(f"{FRONTEND_URL}/complete-profile")
+        else:
+            password_hash = await hash_password(secrets.token_urlsafe(32))
+            cursor = await conn.execute("""UPDATE users SET first_name= %s, last_name = %s, password_hash = %s, verified = %s where id = %s""",
+                (first_name, last_name, password_hash, True, user_id)
+            )
+            await conn.commit()
+            if profile_complete:
+                response = RedirectResponse(f"{FRONTEND_URL}/browse")
+            else:
+                response = RedirectResponse(f"{FRONTEND_URL}/complete-profile")
 
         await create_session(response, user_id, redis)
         return response

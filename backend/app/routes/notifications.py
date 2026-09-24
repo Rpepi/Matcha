@@ -54,6 +54,7 @@ async def notifications(request: Request, response: Response, redis=Depends(get_
             logger.exception("Notification stream error for user %s", user_id)
         finally:
             await pubsub.unsubscribe(f"notif:{user_id}")
+            await pubsub.aclose()
 
     return StreamingResponse(
         event_generator(),
@@ -65,11 +66,10 @@ async def notifications(request: Request, response: Response, redis=Depends(get_
     )
 
 
-async def _notify(conn: AsyncConnection, user_id: str, from_user_id: str, type: str, redis: Redis):
+async def insert_notification(conn: AsyncConnection, user_id: str, from_user_id: str, type: str):
     """Store a notification and push it to the recipient in real time.
 
-    Inserts a row in ``notifications`` and publishes its type and origin as
-    JSON on the Redis channel ``notif:<user_id>``. Does not commit: the
+    Inserts a row in ``notifications``. Does not commit: the
     caller owns the transaction.
 
     Args:
@@ -77,12 +77,26 @@ async def _notify(conn: AsyncConnection, user_id: str, from_user_id: str, type: 
         user_id: Id of the recipient.
         from_user_id: Id of the user who triggered the notification.
         type: One of "like", "unlike", "match", "visit" or "message".
-        redis: Redis client used to publish the event.
     """
     await conn.execute(
         "INSERT INTO notifications (user_id, from_user_id, type) VALUES (%s, %s, %s)",
         (user_id, from_user_id, type)
     )
+
+
+async def publish_notification(user_id: str, from_user_id: str, type: str, redis: Redis):
+    """Push a notification to the recipient in real time.
+
+    Publishes its type and origin as
+    JSON on the Redis channel ``notif:<user_id>``. Does not commit: the
+    caller owns the transaction.
+
+    Args:
+        user_id: Id of the recipient.
+        from_user_id: Id of the user who triggered the notification.
+        type: One of "like", "unlike", "match", "visit" or "message".
+        redis: Redis client used to publish the event.
+    """
     await redis.publish(f"notif:{user_id}", json.dumps({
         "type": type,
         "from_user_id": from_user_id,

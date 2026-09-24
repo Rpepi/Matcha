@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response, Request, HTTPException, Upload
 from fastapi.responses import FileResponse
 from psycopg import AsyncConnection
 from redis import Redis
+import asyncio
 from psycopg.rows import DictRow
 from psycopg.errors import UniqueViolation
 from app.db.dependencies import get_db
@@ -172,7 +173,7 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         raise HTTPException(status_code=500, detail="failed to update profile")
 
     if email_changed:
-        token = generate_verification_token(str(user_id))
+        token = generate_verification_token(str(user_id), updates["email"])
         send_verification_email(updates["email"], token)
 
     return {"message": "profile updated"}
@@ -522,7 +523,7 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             if not is_valid_image(data):
                 raise HTTPException(status_code=400, detail=f"photo at position {position}: invalid format")
 
-            path = process_photo(data, user_id)
+            path = asyncio.to_thread(process_photo(data, user_id))
             is_first = current_count == 0 and position == free_positions[0]
 
             await conn.execute(

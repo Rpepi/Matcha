@@ -2,6 +2,7 @@ from fastapi import Response, HTTPException, Request
 from redis.asyncio import Redis
 from redis import RedisError
 import os
+import time
 import hmac
 import hashlib
 import secrets
@@ -21,9 +22,12 @@ async def create_session(response: Response, user_id: int, conn: Redis):
     """Create a session for a user and set the session cookie.
 
     Generates a random session id, stores ``session:<id>`` -> ``user_id`` in
-    Redis for 7 days and sets a ``session`` cookie of the form
-    ``<id>$<hmac_sha256>``. The cookie is httponly, samesite=strict and
-    secure unless ``ENV`` is set to something other than "production".
+    Redis for 7 days, and records the session id in the sorted set
+    ``user_sessions:<user_id>`` (scored by its expiry timestamp) so all of a
+    user's active sessions can later be found and revoked at once — see
+    ``routes.authentification.reset_password``. Sets a ``session`` cookie of
+    the form ``<id>$<hmac_sha256>``. The cookie is httponly, samesite=strict
+    and secure unless ``ENV`` is set to something other than "production".
 
     Args:
         response: Response on which the cookie is set.
@@ -38,7 +42,9 @@ async def create_session(response: Response, user_id: int, conn: Redis):
     cookie_value = session_id + "$" + session_hash
 
     try:
+        expires_at = time.time() + 604800
         await conn.set("session:" + session_id, user_id, ex=604800)
+        await conn.zadd("user_sessions:" + str(user_id), {session_id: expires_at})
     except RedisError:
         logger.exception("Redis error while creating session for user %s", user_id)
         raise HTTPException(status_code=503, detail="Failed to create session cache")

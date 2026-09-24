@@ -143,7 +143,7 @@ class TestPutProfileMe:
             res = await auth_client.put("/profile/me", json={"email": "new@test.com"})
 
         assert res.status_code == 200
-        mock_token.assert_called_once_with("1")
+        mock_token.assert_called_once_with("1", "new@test.com")
         mock_send.assert_called_once_with("new@test.com", "tok123")
 
         executed_sql = mock_db.execute.call_args_list[-1][0][0]

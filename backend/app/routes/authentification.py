@@ -4,7 +4,9 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 from itsdangerous import SignatureExpired, BadSignature
 import redis.asyncio as redis
-from redis import Redis
+import asyncio
+import time
+from redis import Redis, RedisError
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import create_session
@@ -152,7 +154,7 @@ async def forgot_password(request: Request, conn: AsyncConnection = Depends(get_
     row = await cursor.fetchone()
     if row:
         token = serializer.dumps(str(row["id"]), salt="password-reset")
-        send_reset_email(email, token)
+        await asyncio.to_thread(send_reset_email, email, token)
     return {"message": "If this email exists, a reset link has been sent"}
 
 
@@ -164,6 +166,16 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
     must be a valid ``password-reset`` token less than 30 minutes old and
     not used before (used tokens are remembered in Redis for 30 minutes).
 
+    On success, all of the user's other active sessions are also
+    invalidated: their ids are looked up in the sorted set
+    ``user_sessions:<user_id>`` (populated by ``create_session``, scored by
+    each session's expiry) and the matching ``session:<id>`` keys are
+    deleted, so a stolen session cookie stops working immediately instead
+    of surviving up to its full 7-day TTL. That cleanup is best-effort: the
+    password change is already committed by that point, so a Redis failure
+    during it is logged but does not turn a successful reset into an error
+    response.
+
     Args:
         request: Incoming request with the JSON body.
         redis: Redis client (injected dependency).
@@ -174,8 +186,9 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
 
     Raises:
         HTTPException: 400 if a field is missing or not a string, the
-            password is too weak or too common, or the token is invalid,
-            expired or already used.
+            password is too weak or too common, the token is invalid,
+            expired or already used, or Redis fails while checking/marking
+            the token as used.
     """
 
     body = await require_json(request)
@@ -197,15 +210,34 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
     except BadSignature:
         raise HTTPException(status_code=400, detail="Invalid reset token")
 
-    redis_key = f"used_reset:{token}"
-    if await redis.get(redis_key):
-        raise HTTPException(status_code=400, detail="Reset link has already been used")
-    await redis.set(redis_key, 1, ex=1800)
+    try:
+        redis_key = f"used_reset:{token}"
+        if await redis.get(redis_key):
+            raise HTTPException(status_code=400, detail="Reset link has already been used")
+        await redis.set(redis_key, 1, ex=1800)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=400, detail="Redis error")
+
 
     new_hash = await hash_password(new_password)
     await conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user_id))
     await conn.commit()
+
+    try:
+        await redis.zremrangebyscore("user_sessions:" + str(user_id), "-inf", time.time())
+        session_ids = await redis.zrange("user_sessions:" + str(user_id), 0, -1)
+        for session_id in session_ids:
+            await redis.delete("session:" + session_id)
+    except Exception:
+        # Best-effort: the password change above is already committed, so a
+        # Redis hiccup here must not turn a successful reset into an error
+        # response — stale sessions just outlive this cleanup slightly.
+        logger.exception("Failed to invalidate other sessions for user %s after password reset", user_id)
     return {"message": "Password updated. You can now log in."}
+
 
 
 @router.post("/auth/register")
@@ -255,6 +287,8 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
         raise HTTPException(status_code=400, detail="Required fields must be strings")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(status_code=400, detail="Invalid email format")
+    if not is_password_valid(password):
+        raise HTTPException(status_code=400, detail="Password too weak or too common")
 
     columns = ", ".join(fields.keys())
     placeholders = ", ".join(["%s"] * len(fields))
@@ -266,36 +300,63 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     user_id = row["id"]
     await conn.commit()
     logger.info("New account registered: email='%s' id=%s", email, user_id)
-    token = generate_verification_token(str(user_id))
-    send_verification_email(email, token)
+    token = generate_verification_token(str(user_id), email)
+    await asyncio.to_thread(send_verification_email, email, token)
     return {"message": "Account created. Check your email to verify your account."}
 
 
 @router.get("/auth/verify")
-async def verify_email(request: Request, conn: AsyncConnection = Depends(get_db)):
+async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Mark an email address as verified.
 
-    Reads the ``token`` query parameter, which must be a valid
-    ``email-verify`` token less than one hour old.
+    Reads the ``token`` query parameter, which must be a valid, unused
+    ``email-verify`` token less than one hour old, issued for the email
+    address currently on the account. A token from a previous address
+    (e.g. replayed after changing email) is rejected even if unexpired and
+    unused, so verifying one address never verifies a different one for
+    free.
 
     Args:
         request: Incoming request carrying the ``token`` query parameter.
+        redis: Redis client (injected dependency).
         conn: Database connection (injected dependency).
 
     Returns:
         ``{"message": "Email verified. You can now log in."}``.
 
     Raises:
-        HTTPException: 400 if the token is missing, invalid or expired.
+        HTTPException: 400 if the token is missing, malformed, invalid,
+            expired, already used, or was issued for an email address that
+            no longer matches the account.
     """
     token = request.query_params.get("token")
-    if not token:   
+    if not token:
         raise HTTPException(status_code=400, detail="Missing token")
     try:
-        user_id = serializer.loads(token, salt="email-verify", max_age=3600)  # expire after 1h
+        payload = serializer.loads(token, salt="email-verify", max_age=3600)  # expire after 1h
+        user_id = payload["user_id"]
+        email = payload["email"]
     except SignatureExpired:
         raise HTTPException(status_code=400, detail="Verification link has expired")
-    except BadSignature:
+    except (BadSignature, TypeError, KeyError):
+        # TypeError/KeyError also covers a signature-valid but old-format
+        # token (plain user_id string, from before email was bound in).
+        raise HTTPException(status_code=400, detail="Invalid verification token")
+
+    redis_key = f"used_verify:{token}"
+    try:
+        if await redis.get(redis_key):
+            raise HTTPException(status_code=400, detail="Verification link has already been used")
+        await redis.set(redis_key, 1, ex=3600)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=400, detail="Redis error")
+
+    cursor = await conn.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+    row = await cursor.fetchone()
+    if not row or row["email"] != email:
         raise HTTPException(status_code=400, detail="Invalid verification token")
 
     await conn.execute("UPDATE users SET verified = true WHERE id = %s", (user_id,))
