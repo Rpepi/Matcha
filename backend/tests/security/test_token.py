@@ -5,28 +5,40 @@ from unittest.mock import patch, MagicMock, AsyncMock
 class TestGenerateVerificationToken:
     def test_returns_a_string(self):
         from app.security.token import generate_verification_token
-        token = generate_verification_token("42")
+        token = generate_verification_token("42", "alice@test.com")
         assert isinstance(token, str)
         assert len(token) > 0
 
-    def test_token_contains_user_id(self):
+    def test_token_contains_user_id_and_email(self):
         from app.security.token import generate_verification_token, serializer
-        token = generate_verification_token("42")
-        user_id = serializer.loads(token, salt="email-verify", max_age=3600)
-        assert user_id == "42"
+        token = generate_verification_token("42", "alice@test.com")
+        payload = serializer.loads(token, salt="email-verify", max_age=3600)
+        assert payload == {"user_id": "42", "email": "alice@test.com"}
 
     def test_different_users_get_different_tokens(self):
         from app.security.token import generate_verification_token
-        t1 = generate_verification_token("1")
-        t2 = generate_verification_token("2")
+        t1 = generate_verification_token("1", "a@test.com")
+        t2 = generate_verification_token("2", "b@test.com")
         assert t1 != t2
 
     def test_token_is_verifiable_after_generation(self):
-        """Token can be decoded back to the original user_id."""
+        """Token can be decoded back to the original user_id and email."""
         from app.security.token import generate_verification_token, serializer
-        token = generate_verification_token("99")
+        token = generate_verification_token("99", "carol@test.com")
         decoded = serializer.loads(token, salt="email-verify", max_age=3600)
-        assert decoded == "99"
+        assert decoded["user_id"] == "99"
+        assert decoded["email"] == "carol@test.com"
+
+    def test_same_user_different_email_gives_different_payload(self):
+        """The token is bound to the address it was issued for, not just
+        the user id — a token for an old address must be distinguishable
+        from one for a new address on the same account."""
+        from app.security.token import generate_verification_token, serializer
+        token_old = generate_verification_token("1", "old@test.com")
+        token_new = generate_verification_token("1", "new@test.com")
+        payload_old = serializer.loads(token_old, salt="email-verify", max_age=3600)
+        payload_new = serializer.loads(token_new, salt="email-verify", max_age=3600)
+        assert payload_old["email"] != payload_new["email"]
 
 
 class TestSendVerificationEmail:
@@ -64,7 +76,7 @@ class TestSendVerificationEmail:
             smtp_cls.return_value.__enter__ = MagicMock(return_value=MagicMock())
             smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
             send_verification_email("alice@test.com", "token")
-            smtp_cls.assert_called_once_with("mailpit", 1025)
+            smtp_cls.assert_called_once_with("mailpit", 1025, timeout=10)
 
 
 class TestSendResetEmail:

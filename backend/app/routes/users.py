@@ -10,7 +10,8 @@ from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.utils import require_json
 from app.log import get_logger
-from app.routes.notifications import _notify
+from app.routes.notifications import insert_notification, publish_notification
+from app.routes.chat import publish_unmatch
 
 logger = get_logger(__name__)
 
@@ -346,8 +347,9 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
             "INSERT INTO visits (visitor_id, visited_id) VALUES (%s, %s)",
             (user_id, target_id)
         )
-        await _notify(conn, str(target_id), user_id, "visit", redis)
+        await insert_notification(conn, str(target_id), user_id, "visit")
         await conn.commit()
+        await publish_notification(str(target_id), user_id, "visit", redis)
     except Exception:
         logger.exception("Failed to record visit from user %s to %s", user_id, target_id)
         await conn.rollback()
@@ -462,14 +464,19 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
         is_match = await cursor.fetchone() is not None
 
         if is_match:
-            await _notify(conn, str(target_id), user_id, "match", redis)
-            await _notify(conn, user_id, str(target_id), "match", redis)
+            await insert_notification(conn, str(target_id), user_id, "match")
+            await insert_notification(conn, user_id, str(target_id), "match")
             await _recalculate_fame(conn, user_id)
+            await _recalculate_fame(conn, str(target_id))
+            await conn.commit()
+            await publish_notification(str(target_id), user_id, "match", redis)
+            await publish_notification(str(user_id), target_id, "match", redis)
         else:
-            await _notify(conn, str(target_id), user_id, "like", redis)
+            await insert_notification(conn, str(target_id), user_id, "like")
+            await _recalculate_fame(conn, str(target_id))
+            await conn.commit()
+            await publish_notification(str(target_id), user_id, "like", redis)
 
-        await _recalculate_fame(conn, str(target_id))
-        await conn.commit()
     except Exception:
         logger.exception("Like failed: user %s → target %s", user_id, target_id)
         raise HTTPException(status_code=500, detail="like failed")
@@ -482,6 +489,9 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
     """Remove the current user's like on another user.
 
     Notifies the target with "unlike" and recalculates their fame rating.
+    Also publishes an "unmatch" event on their chat room's Redis channel
+    (see ``routes/chat.py::publish_unmatch``), closing any open chat
+    websocket between the two.
 
     Args:
         target_id: Id of the user whose like is removed.
@@ -506,9 +516,11 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
         if await cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="like not found")
 
-        await _notify(conn, str(target_id), user_id, "unlike", redis)
+        await insert_notification(conn, str(target_id), user_id, "unlike")
         await _recalculate_fame(conn, str(target_id))
         await conn.commit()
+        await publish_notification(str(target_id), user_id, "unlike", redis)
+        await publish_unmatch(user_id, target_id, redis)
     except HTTPException:
         raise
     except Exception:
@@ -524,6 +536,9 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
 
     Records the block (blocking twice is harmless) and deletes any like
     between the two users in both directions, which also ends a match.
+    Publishes an "unmatch" event on their chat room's Redis channel (see
+    ``routes/chat.py::publish_unmatch``), closing any open chat websocket
+    between the two.
 
     Args:
         target_id: Id of the user to block.
@@ -560,6 +575,7 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
             (user_id, target_id, target_id, user_id)
         )
         await conn.commit()
+        await publish_unmatch(user_id, target_id, redis)
     except Exception:
         logger.exception("Block failed: user %s → target %s", user_id, target_id)
         raise HTTPException(status_code=500, detail="block failed")

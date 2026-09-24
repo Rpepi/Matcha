@@ -74,6 +74,35 @@ class TestCreateSession:
         assert len(parts[0]) == 64  # secrets.token_hex(32) = 64 hex chars
         assert len(parts[1]) == 64  # SHA-256 hex digest
 
+    async def test_indexes_session_in_user_sessions_zset(self):
+        from app.security.session import create_session
+        response = make_mock_response()
+        redis = make_mock_redis()
+
+        with patch("app.security.session.SECRET", "test-secret-key-32bytes-long!!!!"):
+            await create_session(response, "42", redis)
+
+        redis.zadd.assert_called_once()
+        key, mapping = redis.zadd.call_args.args
+        assert key == "user_sessions:42"
+        session_id = redis.set.call_args.args[0].split(":", 1)[1]
+        assert session_id in mapping
+
+    async def test_user_sessions_score_is_expiry_timestamp(self):
+        import time
+        from app.security.session import create_session
+        response = make_mock_response()
+        redis = make_mock_redis()
+
+        before = time.time()
+        with patch("app.security.session.SECRET", "test-secret-key-32bytes-long!!!!"):
+            await create_session(response, "42", redis)
+        after = time.time()
+
+        _, mapping = redis.zadd.call_args.args
+        score = next(iter(mapping.values()))
+        assert before + 604800 <= score <= after + 604800
+
     async def test_raises_503_when_redis_fails(self):
         from app.security.session import create_session
         response = make_mock_response()
