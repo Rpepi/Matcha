@@ -175,6 +175,6 @@ class TestSeed:
         conn.rollback.assert_called()
 
     def test_tags_constant_contains_expected_entries(self):
-        assert "vegan" in TAGS
-        assert "geek" in TAGS
+        assert "travel" in TAGS
+        assert "coffee" in TAGS
         assert len(TAGS) >= 10
