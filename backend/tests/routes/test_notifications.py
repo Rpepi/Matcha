@@ -23,6 +23,7 @@ def make_pubsub(messages=None):
     p = MagicMock()
     p.subscribe = AsyncMock()
     p.unsubscribe = AsyncMock()
+    p.aclose = AsyncMock()
     p.listen = MagicMock(side_effect=lambda: _listen())
     return p
 
@@ -64,122 +65,106 @@ def notif_app(mock_redis, mock_db):
     return app
 
 
-# ── _notify ───────────────────────────────────────────────────────────────────
+# ── insert_notification ──────────────────────────────────────────────────────
 
-class TestNotify:
+class TestInsertNotification:
     async def test_inserts_notification_with_correct_params(self):
-        from app.routes.notifications import _notify
+        from app.routes.notifications import insert_notification
         conn = AsyncMock()
-        redis = AsyncMock()
 
-        await _notify(conn, "1", "2", "like", redis)
+        await insert_notification(conn, "1", "2", "like")
 
         query, params = conn.execute.call_args.args
         assert "INSERT INTO notifications" in query
         assert params == ("1", "2", "like")
 
-    async def test_publishes_to_correct_user_channel(self):
-        from app.routes.notifications import _notify
+    async def test_does_not_touch_redis(self):
+        """insert_notification only writes to the DB; the caller commits and
+        publishes separately once the transaction succeeds."""
+        from app.routes.notifications import insert_notification
         conn = AsyncMock()
         redis = AsyncMock()
 
-        await _notify(conn, "99", "42", "visit", redis)
+        await insert_notification(conn, "1", "2", "like")
+
+        redis.publish.assert_not_called()
+
+    async def test_db_failure_propagates(self):
+        from app.routes.notifications import insert_notification
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=Exception("db down"))
+
+        with pytest.raises(Exception, match="db down"):
+            await insert_notification(conn, "1", "2", "like")
+
+
+# ── publish_notification ─────────────────────────────────────────────────────
+
+class TestPublishNotification:
+    async def test_publishes_to_correct_user_channel(self):
+        from app.routes.notifications import publish_notification
+        redis = AsyncMock()
+
+        await publish_notification("99", "42", "visit", redis)
 
         channel = redis.publish.call_args.args[0]
         assert channel == "notif:99"
 
     async def test_publishes_correct_json_payload(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, "10", "20", "match", redis)
+        await publish_notification("10", "20", "match", redis)
 
         _, payload = redis.publish.call_args.args
         data = json.loads(payload)
         assert data == {"type": "match", "from_user_id": "20"}
 
     async def test_like_notification(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, "1", "2", "like", redis)
+        await publish_notification("1", "2", "like", redis)
 
         _, payload = redis.publish.call_args.args
         assert json.loads(payload)["type"] == "like"
 
     async def test_unlike_notification(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, "1", "2", "unlike", redis)
+        await publish_notification("1", "2", "unlike", redis)
 
         _, payload = redis.publish.call_args.args
         assert json.loads(payload)["type"] == "unlike"
 
     async def test_match_notification(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, "1", "2", "match", redis)
+        await publish_notification("1", "2", "match", redis)
 
         _, payload = redis.publish.call_args.args
         assert json.loads(payload)["type"] == "match"
 
     async def test_visit_notification(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, "1", "2", "visit", redis)
+        await publish_notification("1", "2", "visit", redis)
 
         _, payload = redis.publish.call_args.args
         assert json.loads(payload)["type"] == "visit"
 
-    async def test_db_insert_before_redis_publish(self):
-        from app.routes.notifications import _notify
-        call_order = []
-
-        async def fake_execute(*a, **kw):
-            call_order.append("db")
-            return AsyncMock()
-
-        async def fake_publish(*a, **kw):
-            call_order.append("redis")
-
-        conn = AsyncMock()
-        conn.execute = AsyncMock(side_effect=fake_execute)
-        redis = AsyncMock()
-        redis.publish = AsyncMock(side_effect=fake_publish)
-
-        await _notify(conn, "1", "2", "like", redis)
-
-        assert call_order == ["db", "redis"]
-
     async def test_from_user_id_in_redis_payload_not_target(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
+        from app.routes.notifications import publish_notification
         redis = AsyncMock()
 
-        await _notify(conn, user_id="5", from_user_id="7", type="like", redis=redis)
+        await publish_notification(user_id="5", from_user_id="7", type="like", redis=redis)
 
         _, payload = redis.publish.call_args.args
         data = json.loads(payload)
         assert data["from_user_id"] == "7"
-
-    async def test_db_failure_propagates(self):
-        from app.routes.notifications import _notify
-        conn = AsyncMock()
-        conn.execute = AsyncMock(side_effect=Exception("db down"))
-        redis = AsyncMock()
-
-        with pytest.raises(Exception, match="db down"):
-            await _notify(conn, "1", "2", "like", redis)
-
-        redis.publish.assert_not_called()
 
 
 # ── GET /notifications/stream ─────────────────────────────────────────────────

@@ -19,10 +19,26 @@ ph = PasswordHasher(
 
 
 TAGS = [
-    "vegan", "geek", "piercing", "tattoo", "sport",
-    "music", "travel", "cinema", "cooking", "gaming",
-    "yoga", "art", "photography", "reading", "hiking",
-    "dancing", "coffee", "wine", "cat", "dog"
+    'travel',
+    'coffee',
+    'hiking',
+    'movies',
+    'music',
+    'gaming',
+    'fitness',
+    'foodie',
+    'art',
+    'photography',
+    'dogs',
+    'cats',
+    'yoga',
+    'reading',
+    'dancing',
+    'cooking',
+    'wine',
+    'beach',
+    'nature',
+    'tech'
 ]
 
 

@@ -8,9 +8,13 @@ import os
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
+from app.security.rate_limit import rate_limit
 from app.utils import require_json
+from app.validation import clean_str, parse_int_param, valid_target_id, MAX_REASON
 from app.log import get_logger
-from app.routes.notifications import _notify
+from app.routes.notifications import insert_notification, publish_notification
+from app.routes.chat import publish_unmatch
+
 
 logger = get_logger(__name__)
 
@@ -90,27 +94,6 @@ async def _recalculate_fame(conn: AsyncConnection, user_id: str):
 
 
 
-def _parse_int_param(value: str | None, name: str) -> int | None:
-    """Parse an optional integer query parameter.
-
-    Args:
-        value: Raw parameter value, or ``None`` if absent.
-        name: Parameter name, used in the error message.
-
-    Returns:
-        The integer value, or ``None`` if the parameter is absent.
-
-    Raises:
-        HTTPException: 400 if the value is not an integer.
-    """
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"'{name}' must be an integer")
-
-
 def _build_orientation_filter(gender: str | None, orientation: str | None) -> tuple[list[str], list]:
     """Build the SQL conditions restricting candidates by gender/orientation.
 
@@ -147,7 +130,7 @@ def _build_orientation_filter(gender: str | None, orientation: str | None) -> tu
     return [], []
 
 
-@router.get("/users")
+@router.get("/users", dependencies=[Depends(rate_limit("browse", limit=30, seconds=60, burst=10, by="account"))])
 async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List suggested profiles for the current user.
 
@@ -173,19 +156,21 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         ``common_tags``, ``score`` and ``photo``.
 
     Raises:
-        HTTPException: 400 if a query parameter is not an integer or the
-            user's location is not set; 401 if the session is missing or
-            invalid.
+        HTTPException: 400 if a query parameter is not an integer or is out
+            of range (``page`` 0-10000, ``min_age``/``max_age`` 16-120,
+            ``max_distance`` 0-40000, ``min_fame`` 0-1000000, ``min_tags``
+            0-5) or the user's location is not set; 401 if the session is
+            missing or invalid.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     qp = request.query_params
-    page        = max(0, _parse_int_param(qp.get("page"), "page") or 0)
-    min_age     = _parse_int_param(qp.get("min_age"), "min_age")
-    max_age     = _parse_int_param(qp.get("max_age"), "max_age")
-    max_dist    = _parse_int_param(qp.get("max_distance"), "max_distance")
-    min_fame    = _parse_int_param(qp.get("min_fame"), "min_fame")
-    min_tags    = _parse_int_param(qp.get("min_tags"), "min_tags")
+    page        = parse_int_param(qp.get("page"), "page", 0, 10_000) or 0
+    min_age     = parse_int_param(qp.get("min_age"), "min_age", 16, 120)
+    max_age     = parse_int_param(qp.get("max_age"), "max_age", 16, 120)
+    max_dist    = parse_int_param(qp.get("max_distance"), "max_distance", 0, 40_000)
+    min_fame    = parse_int_param(qp.get("min_fame"), "min_fame", 0, 1_000_000)
+    min_tags    = parse_int_param(qp.get("min_tags"), "min_tags", 0, 5)
 
     cursor = await conn.execute(
         "SELECT gender, orientation, latitude, longitude, birth_date FROM users WHERE id = %s",
@@ -286,13 +271,18 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     return [dict(r) for r in rows]
 
 
-@router.get("/users/{target_id}")
+@router.get("/users/{target_id}", dependencies=[Depends(valid_target_id)])
 async def get_user_profile(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return another user's profile and record the visit.
 
-    Side effect: inserts a row in ``visits`` and sends a "visit"
-    notification to the viewed user. If that fails, the error is logged and
-    rolled back, and the profile is still returned.
+    Side effect: upserts a row in ``visits`` keyed on ``(visitor_id,
+    visited_id)`` (see the ``UNIQUE`` constraint in migration 006) and
+    sends a "visit" notification to the viewed user — but only when that
+    upsert actually changes the row, i.e. on the first visit ever, or the
+    first one after the previous visit is more than 15 days old. Repeat
+    views inside that window are silently skipped: no new row, no
+    notification. If the upsert fails, the error is logged and rolled
+    back, and the profile is still returned.
 
     Args:
         target_id: Id of the user to view.
@@ -342,12 +332,22 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     profile["is_match"] = like_status["liked_by_me"] and like_status["liked_by_them"]
 
     try:
-        await conn.execute(
-            "INSERT INTO visits (visitor_id, visited_id) VALUES (%s, %s)",
+        cursor = await conn.execute("""
+            INSERT INTO visits (visitor_id, visited_id, created_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (visitor_id, visited_id)
+            DO UPDATE SET created_at = NOW()
+            WHERE visits.created_at < NOW() - INTERVAL '15 days'
+            RETURNING id
+        """,
             (user_id, target_id)
         )
-        await _notify(conn, str(target_id), user_id, "visit", redis)
+        row = await cursor.fetchone()
+        if row:
+            await insert_notification(conn, str(target_id), user_id, "visit")
         await conn.commit()
+        if row:
+            await publish_notification(str(target_id), user_id, "visit", redis)
     except Exception:
         logger.exception("Failed to record visit from user %s to %s", user_id, target_id)
         await conn.rollback()
@@ -355,7 +355,7 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     return profile
 
 
-@router.get("/users/{target_id}/photos/{position}")
+@router.get("/users/{target_id}/photos/{position}", dependencies=[Depends(valid_target_id)])
 async def get_user_photo(target_id: int, position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Serve another user's photo as a JPEG.
 
@@ -400,7 +400,7 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
     return FileResponse(photo["path"], media_type="image/jpeg")
 
 
-@router.post("/users/{target_id}/like")
+@router.post("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(rate_limit("like", limit=20, seconds=60, burst=5, by="account"))])
 async def like_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Like a user, creating a match if the like is reciprocated.
 
@@ -462,14 +462,19 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
         is_match = await cursor.fetchone() is not None
 
         if is_match:
-            await _notify(conn, str(target_id), user_id, "match", redis)
-            await _notify(conn, user_id, str(target_id), "match", redis)
+            await insert_notification(conn, str(target_id), user_id, "match")
+            await insert_notification(conn, user_id, str(target_id), "match")
             await _recalculate_fame(conn, user_id)
+            await _recalculate_fame(conn, str(target_id))
+            await conn.commit()
+            await publish_notification(str(target_id), user_id, "match", redis)
+            await publish_notification(str(user_id), target_id, "match", redis)
         else:
-            await _notify(conn, str(target_id), user_id, "like", redis)
+            await insert_notification(conn, str(target_id), user_id, "like")
+            await _recalculate_fame(conn, str(target_id))
+            await conn.commit()
+            await publish_notification(str(target_id), user_id, "like", redis)
 
-        await _recalculate_fame(conn, str(target_id))
-        await conn.commit()
     except Exception:
         logger.exception("Like failed: user %s → target %s", user_id, target_id)
         raise HTTPException(status_code=500, detail="like failed")
@@ -477,11 +482,14 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
     return {"message": "match" if is_match else "liked"}
 
 
-@router.delete("/users/{target_id}/like")
+@router.delete("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(rate_limit("like", limit=20, seconds=60, burst=5, by="account"))])
 async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Remove the current user's like on another user.
 
     Notifies the target with "unlike" and recalculates their fame rating.
+    Also publishes an "unmatch" event on their chat room's Redis channel
+    (see ``routes/chat.py::publish_unmatch``), closing any open chat
+    websocket between the two.
 
     Args:
         target_id: Id of the user whose like is removed.
@@ -506,9 +514,11 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
         if await cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="like not found")
 
-        await _notify(conn, str(target_id), user_id, "unlike", redis)
+        await insert_notification(conn, str(target_id), user_id, "unlike")
         await _recalculate_fame(conn, str(target_id))
         await conn.commit()
+        await publish_notification(str(target_id), user_id, "unlike", redis)
+        await publish_unmatch(user_id, target_id, redis)
     except HTTPException:
         raise
     except Exception:
@@ -518,12 +528,15 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
     return {"message": "unliked"}
 
 
-@router.post("/users/{target_id}/block")
+@router.post("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(rate_limit("block", limit=10, seconds=60, by="account"))])
 async def block_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Block a user.
 
     Records the block (blocking twice is harmless) and deletes any like
     between the two users in both directions, which also ends a match.
+    Publishes an "unmatch" event on their chat room's Redis channel (see
+    ``routes/chat.py::publish_unmatch``), closing any open chat websocket
+    between the two.
 
     Args:
         target_id: Id of the user to block.
@@ -560,6 +573,7 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
             (user_id, target_id, target_id, user_id)
         )
         await conn.commit()
+        await publish_unmatch(user_id, target_id, redis)
     except Exception:
         logger.exception("Block failed: user %s → target %s", user_id, target_id)
         raise HTTPException(status_code=500, detail="block failed")
@@ -567,7 +581,7 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
     return {"message": "user blocked"}
 
 
-@router.delete("/users/{target_id}/block")
+@router.delete("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(rate_limit("block", limit=10, seconds=60, by="account"))])
 async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Remove a block placed by the current user.
 
@@ -606,11 +620,12 @@ async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(
     return {"message": "user unblocked"}
 
 
-@router.post("/users/{target_id}/report")
+@router.post("/users/{target_id}/report", dependencies=[Depends(valid_target_id), Depends(rate_limit("report", limit=5, seconds=3600, by="account"))])
 async def report_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Report a user for abuse.
 
-    Expects a JSON body with an optional string ``reason``. Each user can
+    Expects a JSON body with an optional string ``reason`` (max 500
+    characters, control characters other than newlines refused). Each user can
     report another user only once; repeating returns "already reported".
 
     Args:
@@ -633,9 +648,7 @@ async def report_user(target_id: int, request: Request, redis: Redis = Depends(g
         raise HTTPException(status_code=400, detail="cannot report yourself")
 
     body = await require_json(request)
-    reason = body.get("reason")
-    if reason is not None and not isinstance(reason, str):
-        raise HTTPException(status_code=400, detail="reason must be a string")
+    reason = clean_str(body.get("reason"), "reason", MAX_REASON, min_len=0, multiline=True, nullable=True)
 
     cursor = await conn.execute(
         "SELECT 1 FROM users WHERE id = %s", (target_id,)
