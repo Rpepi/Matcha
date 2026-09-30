@@ -4,8 +4,8 @@ CREATE TABLE photos (
     path        TEXT NOT NULL,
     is_profile  BOOLEAN DEFAULT false,
     position    SMALLINT NOT NULL CHECK (position >= 1 AND position <= 5), -- Max 5 photos
-    created_at  TIMESTAMP DEFAULT NOW()
+    created_at  TIMESTAMP DEFAULT NOW(),
+    -- Only one photo per slot per user. Deferred so that swapping two
+    -- positions in one UPDATE (photo move) is checked at commit time.
+    UNIQUE (user_id, position) DEFERRABLE INITIALLY DEFERRED
 );
-
--- Only one photo per slot per user
-UNIQUE (user_id, position) DEFERRABLE INITIALLY DEFERRED;

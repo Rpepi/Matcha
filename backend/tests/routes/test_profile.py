@@ -149,6 +149,59 @@ class TestPutProfileMe:
         executed_sql = mock_db.execute.call_args_list[-1][0][0]
         assert "verified" in executed_sql
 
+    async def test_verification_email_is_sent_off_the_event_loop(self, auth_client, mock_db, mock_redis):
+        """send_verification_email is blocking smtplib (10 s timeout): it must
+        run in a worker thread, not on the event loop shared by every request."""
+        import threading
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
+        sender_threads = []
+
+        def fake_send(to, token):
+            sender_threads.append(threading.current_thread())
+
+        with patch("app.routes.profile.generate_verification_token", return_value="tok123"), \
+             patch("app.routes.profile.send_verification_email", side_effect=fake_send):
+            res = await auth_client.put("/profile/me", json={"email": "new@test.com"})
+
+        assert res.status_code == 200
+        assert len(sender_threads) == 1
+        assert sender_threads[0] is not threading.current_thread()
+
+    async def test_email_send_failure_still_reports_the_committed_update(self, auth_client, mock_db, mock_redis):
+        """The email change is committed (and `verified` reset) before the mail
+        goes out, so an SMTP failure must not turn into a 500."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
+
+        with patch("app.routes.profile.generate_verification_token", return_value="tok123"), \
+             patch("app.routes.profile.send_verification_email", side_effect=OSError("smtp down")):
+            res = await auth_client.put("/profile/me", json={"email": "new@test.com"})
+
+        assert res.status_code == 200
+        assert "could not be sent" in res.json()["message"]
+        mock_db.commit.assert_awaited_once()
+
+    async def test_no_email_change_does_not_send_email(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
+
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.put("/profile/me", json={"first_name": "Bob"})
+
+        assert res.status_code == 200
+        assert res.json()["message"] == "profile updated"
+        mock_send.assert_not_called()
+
     async def test_empty_email_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         res = await auth_client.put("/profile/me", json={"email": ""})

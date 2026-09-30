@@ -6,11 +6,12 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from starlette.websockets import WebSocketState
 from app.security.session import get_current_user_id
+from app.security.rate_limit import check_chat_message_limit
 from app.validation import clean_str, MAX_MESSAGE, MAX_ID
 from app.db import pool as pool_module
 from app.log import get_logger
 from app.routes.notifications import insert_notification, publish_notification
-from app.security.rate_limit import messageLimiter
+
 
 logger = get_logger(__name__)
 
@@ -227,8 +228,16 @@ async def chat_setup(websocket: WebSocket, target_id: int):
             except KeyError:  # binary frame: it has no "text" entry
                 raw = None
             # Every frame counts against the limit, well-formed or not: an
-            # invalid or binary frame still costs a reply.
-            await messageLimiter(websocket)
+            # invalid or binary frame still costs a reply. Over budget, the
+            # sender is told to slow down and the socket stays open — the same
+            # treatment a malformed frame gets.
+            allowed, retry_after = await check_chat_message_limit(websocket, sender_id)
+            if not allowed:
+                await websocket.send_json({
+                    "type": "error",
+                    "detail": f"too many messages, retry in {retry_after}s",
+                })
+                continue
             if raw is None:
                 await websocket.send_json({"type": "error", "detail": "only text frames are supported"})
                 continue

@@ -15,7 +15,8 @@ from app.utils import require_json
 from app.validation import clean_str, clean_email, MAX_EMAIL, MAX_NAME, MAX_PASSWORD, MAX_TOKEN
 from app.log import get_logger
 from app.security.session import get_current_user_id
-from app.security.rate_limit import loginLimiter, registerLimiter, forgotPasswordLimiter
+from app.security.rate_limit import rate_limit
+
 
 logger = get_logger(__name__)
 
@@ -58,7 +59,7 @@ async def authenticate_user(email: str, password: str, conn: AsyncConnection) ->
     return str(row["id"]), row["profile_complete"]
 
 
-@router.post("/auth/login", dependencies=[Depends(loginLimiter)])
+@router.post("/auth/login", dependencies=[Depends(rate_limit("login", limit=10, seconds=60, burst=3))])
 async def login(request: Request, response: Response, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Log a user in and open a session.
 
@@ -119,7 +120,7 @@ async def logout(request: Request, response: Response, redis: redis.Redis = Depe
     return {"message": "Logged out"}
 
 
-@router.post("/auth/forgot-password", dependencies=[Depends(forgotPasswordLimiter)])
+@router.post("/auth/forgot-password", dependencies=[Depends(rate_limit("forgot-password", limit=3, seconds=3600))])
 async def forgot_password(request: Request, conn: AsyncConnection = Depends(get_db)):
     """Send a password-reset email if the address belongs to an account.
 
@@ -180,9 +181,9 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
     Raises:
         HTTPException: 400 if a field is missing, not a string, too long or
             contains control characters, the
-            password is too weak or too common, the token is invalid,
-            expired or already used, or Redis fails while checking/marking
-            the token as used.
+            password is too weak or too common, or the token is invalid,
+            expired or already used; 503 if Redis fails while
+            checking/marking the token as used.
     """
 
     body = await require_json(request)
@@ -208,7 +209,7 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
         raise
     except Exception as e:
         logger.exception(e)
-        raise HTTPException(status_code=400, detail="Redis error")
+        raise HTTPException(status_code=503, detail="Redis error")
 
 
     new_hash = await hash_password(new_password)
@@ -228,8 +229,7 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
     return {"message": "Password updated. You can now log in."}
 
 
-
-@router.post("/auth/register", dependencies=[Depends(registerLimiter)])
+@router.post("/auth/register", dependencies=[Depends(rate_limit("register", limit=5, seconds=3600))])
 async def register(request: Request, response: Response, conn: AsyncConnection = Depends(get_db)):
     """Create an account and send the verification email.
 
@@ -308,7 +308,8 @@ async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis)
     Raises:
         HTTPException: 400 if the token is missing, malformed, invalid,
             expired, already used, or was issued for an email address that
-            no longer matches the account.
+            no longer matches the account; 503 if Redis fails while
+            checking/marking the token as used.
     """
     token = request.query_params.get("token")
     if not token:
@@ -334,7 +335,7 @@ async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis)
         raise
     except Exception as e:
         logger.exception(e)
-        raise HTTPException(status_code=400, detail="Redis error")
+        raise HTTPException(status_code=503, detail="Redis error")
 
     cursor = await conn.execute("SELECT email FROM users WHERE id = %s", (user_id,))
     row = await cursor.fetchone()
@@ -364,5 +365,3 @@ async def verify_auth(request: Request, redis: redis.Redis = Depends(get_redis))
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     return {"id": user_id }
-
-

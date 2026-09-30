@@ -11,7 +11,7 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.token import generate_verification_token, send_verification_email
-from app.security.rate_limit import uploadPhotoLimiter
+from app.security.rate_limit import rate_limit
 from app.utils import require_json, is_valid_image, process_photo
 from app.validation import (
     clean_str, clean_email, clean_choice, clean_int, clean_float,
@@ -73,7 +73,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     return profile
 
 
-@router.put("/profile/me")
+@router.put("/profile/me", dependencies=[Depends(rate_limit("profile-update", limit=10, seconds=3600, by="account"))])
 async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Update the current user's profile and/or tags.
 
@@ -87,7 +87,9 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     profile becomes complete once
     gender, birth date and a location (city or coordinates) are all set.
     Changing the email marks the account unverified and sends a new
-    verification email to the new address.
+    verification email to the new address. The email is sent after the
+    commit: if it cannot be sent the update still stands and the response
+    message says so (still a 200).
 
     Args:
         request: Incoming request with the ``session`` cookie and JSON body.
@@ -95,7 +97,9 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         conn: Database connection (injected dependency).
 
     Returns:
-        ``{"message": "profile updated"}``.
+        ``{"message": "profile updated"}``, or, when the email changed but
+        the verification mail could not be sent, ``{"message": "profile
+        updated, but the verification email could not be sent"}``.
 
     Raises:
         HTTPException: 400 if no field is given, a value is invalid or too
@@ -186,7 +190,13 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 
     if email_changed:
         token = generate_verification_token(str(user_id), updates["email"])
-        send_verification_email(updates["email"], token)
+        try:
+            await asyncio.to_thread(send_verification_email, updates["email"], token)
+        except Exception:
+            # The email change is already committed and `verified` is reset:
+            # a 500 here would hide that from the client, so report the
+            # partial success instead (_send_email already logged the cause).
+            return {"message": "profile updated, but the verification email could not be sent"}
 
     return {"message": "profile updated"}
 
@@ -481,7 +491,7 @@ async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: 
     return [dict(r) for r in rows]
 
 
-@router.post("/profile/photos", dependencies=[Depends(uploadPhotoLimiter)])
+@router.post("/profile/photos", dependencies=[Depends(rate_limit("upload-photo", limit=5, seconds=3600, by="account"))])
 async def upload_photos(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Upload one or more photos for the current user.
 

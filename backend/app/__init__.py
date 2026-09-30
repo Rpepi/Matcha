@@ -14,12 +14,14 @@ from app.routes.users import router as users_router
 from app.routes.chat import router as chat_router
 from app.routes.notifications import router as notifications_router
 from app.routes.oauth import router as oauth_router
+from pathlib import Path
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 if not REDIS_PASSWORD:
     raise RuntimeError("env variable REDIS_PASSWORD not set")
 
 retry = Retry(FullJitterBackoff(), 3, (RedisConnectionError, RedisTimeoutError))
+lua = (Path(__file__).parent / "security" / "token_bucket.lua").read_text()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI):
         password=REDIS_PASSWORD,
         retry=retry
     )
+    app.state.rate_limit_script = app.state.redis.register_script(lua)
     yield
     await close_pool()
     await app.state.redis.aclose()

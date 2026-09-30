@@ -8,6 +8,7 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import create_session
 from app.security.passwords import hash_password
+from app.security.rate_limit import rate_limit
 from app.log import get_logger
 import os
 import secrets
@@ -15,7 +16,7 @@ import httpx
 from google.oauth2 import id_token as id_token_check
 from google.auth.transport import requests as google_requests
 from google.auth.exceptions import GoogleAuthError
-from app.security.rate_limit import oauthLoginLimiter
+
 
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
@@ -35,7 +36,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/oauth/google/login", dependencies=[Depends(oauthLoginLimiter)])
+@router.get("/oauth/google/login", dependencies=[Depends(rate_limit("oauth-login", limit=10, seconds=60))])
 async def oauth_login(redis: redis.Redis = Depends(get_redis)):
     """Step 1 of the Google OAuth2 flow: send the user to Google's consent screen.
 

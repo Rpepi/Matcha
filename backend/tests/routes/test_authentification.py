@@ -295,6 +295,28 @@ class TestVerifyEmailRoute:
 
         assert resp.status_code == 400
 
+    async def test_redis_down_on_get_returns_503_and_verifies_nobody(self, client, mock_db, mock_redis):
+        """Redis being unavailable is the server's problem (503), not a bad
+        request (400), and must not let an unchecked token through."""
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "alice@test.com")
+        mock_redis.get = AsyncMock(side_effect=Exception("redis down"))
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 503
+        mock_db.execute.assert_not_called()
+
+    async def test_redis_down_on_set_returns_503_and_verifies_nobody(self, client, mock_db, mock_redis):
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "alice@test.com")
+        mock_redis.set = AsyncMock(side_effect=Exception("redis down"))
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 503
+        mock_db.execute.assert_not_called()
+
 
 # ── /auth/forgot-password ─────────────────────────────────────────────────────
 
@@ -373,6 +395,21 @@ class TestResetPasswordRoute:
         assert resp.status_code == 200
         update_calls = [c for c in mock_db.execute.call_args_list if "UPDATE users SET password_hash" in str(c)]
         assert len(update_calls) == 1
+
+    async def test_redis_down_returns_503_and_leaves_password_untouched(self, client, mock_db, mock_redis):
+        """Redis being unavailable is a 503 (server side), not a 400, and the
+        password must not change when the single-use check could not run."""
+        token = self._make_reset_token("1")
+        mock_redis.get = AsyncMock(side_effect=Exception("redis down"))
+
+        resp = await client.post("/auth/reset-password", json={
+            "token": token,
+            "new_password": "NewP@ss123!",
+        })
+
+        assert resp.status_code == 503
+        mock_db.execute.assert_not_called()
+        mock_db.commit.assert_not_called()
 
     async def test_commits_after_update(self, client, mock_db):
         token = self._make_reset_token("1")

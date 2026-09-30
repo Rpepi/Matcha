@@ -24,10 +24,6 @@ def _build_app(mock_db, mock_redis):
     from app import create_app
     from app.db.dependencies import get_db
     from app.cache.dependencies import get_redis
-    from app.security.rate_limit import (
-        loginLimiter, registerLimiter, forgotPasswordLimiter, oauthLoginLimiter,
-        LikeLimiter, blockLimiter, uploadPhotoLimiter, reportLimiter,
-    )
 
     application = create_app()
 
@@ -37,23 +33,19 @@ def _build_app(mock_db, mock_redis):
     application.dependency_overrides[get_db] = override_get_db
     application.dependency_overrides[get_redis] = lambda: mock_redis
     # dependency_overrides only patches Depends(get_redis); code that reaches
-    # for request.app.state.redis directly (rate_limit.py's user_identifier,
-    # since fastapi_limiter calls it outside FastAPI's dependency graph) needs
-    # the same mock available there too, or it hits a real, unmocked
-    # State.redis AttributeError instead of using the test's mock.
+    # request.app.state.redis directly (the chat WebSocket handler) needs the
+    # same mock available there too, or it hits a real, unmocked State.redis
+    # AttributeError instead of using the test's mock.
     application.state.redis = mock_redis
 
-    # Every limiter below is a module-level singleton holding real in-memory
-    # counters shared by the whole pytest session — nothing resets them
-    # between tests. Route tests exist to test route logic, not the limiter
-    # itself (already verified live against the real app), so they're
-    # disabled here the same way get_db/get_redis are swapped for mocks.
-    async def _no_limit():
-        return None
-
-    for limiter in (loginLimiter, registerLimiter, forgotPasswordLimiter, oauthLoginLimiter,
-                     LikeLimiter, blockLimiter, uploadPhotoLimiter, reportLimiter):
-        application.dependency_overrides[limiter] = _no_limit
+    # The Lua script is normally registered in lifespan(), which the ASGI
+    # transport used by these fixtures never runs. Route tests exercise route
+    # logic, not the limiter, so it is replaced by a stub that always allows —
+    # the same way get_db/get_redis are swapped for mocks. Everything goes
+    # through app.state, so this covers the HTTP dependency and the chat
+    # WebSocket check at once.
+    # {allowed, remaining, retry_after} — the shape token_bucket.lua returns.
+    application.state.rate_limit_script = AsyncMock(return_value=[1, 999, 0])
 
     return application
 

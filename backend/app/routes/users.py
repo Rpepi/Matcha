@@ -8,7 +8,7 @@ import os
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
-from app.security.rate_limit import LikeLimiter, reportLimiter, blockLimiter
+from app.security.rate_limit import rate_limit
 from app.utils import require_json
 from app.validation import clean_str, parse_int_param, valid_target_id, MAX_REASON
 from app.log import get_logger
@@ -130,7 +130,7 @@ def _build_orientation_filter(gender: str | None, orientation: str | None) -> tu
     return [], []
 
 
-@router.get("/users")
+@router.get("/users", dependencies=[Depends(rate_limit("browse", limit=30, seconds=60, burst=10, by="account"))])
 async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List suggested profiles for the current user.
 
@@ -400,7 +400,7 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
     return FileResponse(photo["path"], media_type="image/jpeg")
 
 
-@router.post("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(LikeLimiter)])
+@router.post("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(rate_limit("like", limit=20, seconds=60, burst=5, by="account"))])
 async def like_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Like a user, creating a match if the like is reciprocated.
 
@@ -482,7 +482,7 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
     return {"message": "match" if is_match else "liked"}
 
 
-@router.delete("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(LikeLimiter)])
+@router.delete("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(rate_limit("like", limit=20, seconds=60, burst=5, by="account"))])
 async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Remove the current user's like on another user.
 
@@ -528,7 +528,7 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
     return {"message": "unliked"}
 
 
-@router.post("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(blockLimiter)])
+@router.post("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(rate_limit("block", limit=10, seconds=60, by="account"))])
 async def block_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Block a user.
 
@@ -581,7 +581,7 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
     return {"message": "user blocked"}
 
 
-@router.delete("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(blockLimiter)])
+@router.delete("/users/{target_id}/block", dependencies=[Depends(valid_target_id), Depends(rate_limit("block", limit=10, seconds=60, by="account"))])
 async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Remove a block placed by the current user.
 
@@ -620,7 +620,7 @@ async def unblock_user(target_id: int, request: Request, redis: Redis = Depends(
     return {"message": "user unblocked"}
 
 
-@router.post("/users/{target_id}/report", dependencies=[Depends(valid_target_id), Depends(reportLimiter)])
+@router.post("/users/{target_id}/report", dependencies=[Depends(valid_target_id), Depends(rate_limit("report", limit=5, seconds=3600, by="account"))])
 async def report_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Report a user for abuse.
 
