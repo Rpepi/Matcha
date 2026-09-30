@@ -4,7 +4,8 @@ CREATE TABLE visits (
     visited_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at  TIMESTAMP DEFAULT NOW(),
 
-    CHECK (visitor_id != visited_id)
+    CHECK (visitor_id != visited_id),
+    UNIQUE (visitor_id, visited_id)
 );
 
 -- Speed up "who visited my profile" sorted by date

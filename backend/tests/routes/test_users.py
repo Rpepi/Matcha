@@ -171,8 +171,7 @@ class TestGetUserProfile:
             make_cursor(fetchall=[{"position": 1, "path": "/p.jpg", "is_profile": True}]),
             make_cursor(fetchall=[{"name": "sport"}]),
             make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
-            make_cursor(),                        # INSERT visit
-            make_cursor(),                        # INSERT notification
+            make_cursor(fetchone=None),           # visits upsert: no row -> no notification
         ])
 
         res = await auth_client.get("/users/2")
@@ -194,8 +193,7 @@ class TestGetUserProfile:
             make_cursor(fetchall=[]),
             make_cursor(fetchall=[]),
             make_cursor(fetchone={"liked_by_me": True, "liked_by_them": False}),
-            make_cursor(),
-            make_cursor(),
+            make_cursor(fetchone=None),  # visits upsert: no row -> no notification
         ])
 
         res = await auth_client.get("/users/2")
@@ -212,8 +210,7 @@ class TestGetUserProfile:
             make_cursor(fetchall=[]),
             make_cursor(fetchall=[]),
             make_cursor(fetchone={"liked_by_me": True, "liked_by_them": True}),
-            make_cursor(),
-            make_cursor(),
+            make_cursor(fetchone=None),  # visits upsert: no row -> no notification
         ])
 
         res = await auth_client.get("/users/2")
@@ -244,7 +241,9 @@ class TestGetUserProfile:
         res = await auth_client.get("/users/999")
         assert res.status_code == 404
 
-    async def test_records_visit(self, auth_client, mock_db, mock_redis):
+    async def test_first_visit_upserts_and_notifies(self, auth_client, mock_db, mock_redis):
+        """No prior visit (or one older than 15 days): the upsert returns a
+        row, so a "visit" notification is inserted and published."""
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=None),
@@ -252,13 +251,39 @@ class TestGetUserProfile:
             make_cursor(fetchall=[]),
             make_cursor(fetchall=[]),
             make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
-            make_cursor(),
-            make_cursor(),
+            make_cursor(fetchone={"id": 42}),  # visits upsert: fresh row -> notify
+            make_cursor(),                     # INSERT notification
         ])
 
-        await auth_client.get("/users/2")
+        res = await auth_client.get("/users/2")
+        assert res.status_code == 200
+
         calls = [str(c.args[0]) for c in mock_db.execute.call_args_list]
         assert any("INSERT INTO visits" in q for q in calls)
+        assert any("INSERT INTO notifications" in q for q in calls)
+        mock_redis.publish.assert_called_once()
+
+    async def test_repeat_visit_within_15_days_skips_notification(self, auth_client, mock_db, mock_redis):
+        """A visit less than 15 days old already exists: ON CONFLICT ... WHERE
+        is false, the upsert touches nothing and returns no row, so no
+        notification is inserted or published."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone=USER_ROW),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
+            make_cursor(fetchone=None),  # visits upsert: WHERE false -> no row
+        ])
+
+        res = await auth_client.get("/users/2")
+        assert res.status_code == 200
+
+        calls = [str(c.args[0]) for c in mock_db.execute.call_args_list]
+        assert any("INSERT INTO visits" in q for q in calls)
+        assert not any("INSERT INTO notifications" in q for q in calls)
+        mock_redis.publish.assert_not_called()
 
     async def test_no_cookie_returns_401(self, client):
         res = await client.get("/users/2")

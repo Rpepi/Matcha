@@ -1,4 +1,9 @@
+import asyncio
+import json
+import threading
+import time
 import pytest
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from starlette.testclient import TestClient
@@ -13,16 +18,29 @@ def make_session_cookie(session_id: str = "testsession") -> str:
     return f"{session_id}${h}"
 
 
-def make_pubsub():
-    """Pubsub mock whose listen() immediately ends (no messages)."""
+def make_pubsub(hang: bool = False):
+    """Pubsub mock.
+
+    By default listen() ends immediately (no messages). With hang=True it
+    blocks forever instead, until the handler cancels it in its `finally` -
+    needed by tests where the receive loop, not the pubsub listener, must
+    be the task that finishes first in the handler's
+    `asyncio.wait(..., FIRST_COMPLETED)`.
+    """
     async def _empty():
+        if False:
+            yield
+
+    async def _hang():
+        await asyncio.Future()
         if False:
             yield
 
     p = MagicMock()
     p.subscribe = AsyncMock()
     p.unsubscribe = AsyncMock()
-    p.listen = MagicMock(side_effect=lambda: _empty())
+    p.aclose = AsyncMock()
+    p.listen = MagicMock(side_effect=_hang if hang else _empty)
     return p
 
 
@@ -52,16 +70,22 @@ def mock_redis():
     r.publish = AsyncMock()
     r.pubsub = MagicMock(return_value=make_pubsub())
     r.aclose = AsyncMock()
+    # lifespan() registers the Lua script off this client and stores the result
+    # on app.state; here that yields a stub which always allows. These tests
+    # cover chat logic, not the limiter (tests/security/test_rate_limit.py does
+    # that, against a real Redis).
+    # {allowed, remaining, retry_after} — the shape token_bucket.lua returns.
+    r.register_script = MagicMock(return_value=AsyncMock(return_value=[1, 999, 0]))
     return r
 
 
 @pytest.fixture
 def chat_app(mock_redis):
-    with patch("app.db.pool.open_pool", new_callable=AsyncMock), \
-         patch("app.db.pool.close_pool", new_callable=AsyncMock), \
+    with patch("app.open_pool", new_callable=AsyncMock), \
+         patch("app.close_pool", new_callable=AsyncMock), \
          patch("redis.asyncio.Redis", return_value=mock_redis):
         from app import create_app
-        return create_app()
+        yield create_app()
 
 
 # ── ConnectionManager ─────────────────────────────────────────────────────────
@@ -176,11 +200,14 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock()
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool):
+             patch("app.db.pool.pool", mock_pool):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
                     "/chat/2",
-                    headers={"Cookie": f"session={make_session_cookie()}"},
+                    headers={
+                        "Cookie": f"session={make_session_cookie()}",
+                        "Origin": "http://localhost:5173",
+                    },
                 ):
                     pass  # clean disconnect triggers WebSocketDisconnect in handler
 
@@ -197,12 +224,15 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock()
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
-             patch("app.routes.chat.manager.connect", side_effect=spy_connect):
+            patch("app.db.pool.pool", mock_pool), \
+            patch("app.routes.chat.manager.connect", side_effect=spy_connect):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
                     "/chat/5",
-                    headers={"Cookie": f"session={make_session_cookie()}"},
+                    headers={"Cookie": f"session={make_session_cookie()}",
+                            "Origin": "http://localhost:5173",
+                    },
+                    
                 ):
                     pass
 
@@ -215,20 +245,31 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock(mock_conn)
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
+             patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.manager.connect", new=AsyncMock()) as mock_connect:
             with TestClient(chat_app) as tc:
                 with pytest.raises(Exception):
                     with tc.websocket_connect(
                         "/chat/2",
-                        headers={"Cookie": f"session={make_session_cookie()}"},
+                        headers={"Cookie": f"session={make_session_cookie()}",
+                                "Origin": "http://localhost:5173",
+                        },
                     ):
                         pass
 
             mock_connect.assert_not_called()
 
     def test_db_error_logs_and_closes_connection(self, chat_app, mock_redis):
-        """When save_message raises, logger.exception is called and connection closes."""
+        """When save_message raises, logger.exception is called and the
+        room is cleaned up.
+
+        Swaps in a hanging pubsub (see make_pubsub) because the default
+        one's listen() ends immediately, which would otherwise win the
+        handler's FIRST_COMPLETED race before the client's message is
+        ever read.
+        """
+        mock_redis.pubsub = MagicMock(return_value=make_pubsub(hang=True))
+
         error_cursor = AsyncMock()
         error_cursor.fetchone = AsyncMock(side_effect=Exception("db down"))
         mock_conn = AsyncMock()
@@ -236,14 +277,253 @@ class TestChatWebSocket:
         mock_pool, _ = make_pool_mock(mock_conn)
 
         with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
-             patch("app.routes.chat.pool", mock_pool), \
+             patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.logger") as mock_logger:
             with TestClient(chat_app) as tc:
+                # Whether the handler's re-raised error reaches the client
+                # before or after it closes its end is a race outside this
+                # test's control; either way logger.exception and cleanup
+                # below are what actually matter.
                 try:
                     with tc.websocket_connect(
                         "/chat/2",
-                        headers={"Cookie": f"session={make_session_cookie()}"},
+                        headers={
+                            "Cookie": f"session={make_session_cookie()}",
+                            "Origin": "http://localhost:5173",
+                        },
                     ) as ws:
                         ws.send_json({"content": "trigger error"})
                 except Exception:
                     pass
+
+        mock_logger.exception.assert_called_once()
+        args, kwargs = mock_logger.exception.call_args
+        assert args == ("WebSocket error for user %s", 1)
+        assert str(kwargs["exc_info"]) == "db down"
+
+        from app.routes.chat import manager
+        assert "room:1_2" not in manager.active
+
+
+# ── input validation ──────────────────────────────────────────────────────────
+
+WS_HEADERS = {
+    "Cookie": f"session={make_session_cookie()}",
+    "Origin": "http://localhost:5173",
+}
+
+
+class TestParseChatFrame:
+    def test_valid_frame_returns_stripped_content(self):
+        from app.routes.chat import parse_chat_frame
+        assert parse_chat_frame('{"content": "  hello  "}') == "hello"
+
+    def test_newlines_and_unicode_are_kept(self):
+        from app.routes.chat import parse_chat_frame
+        assert parse_chat_frame('{"content": "salut\\nça va 👋"}') == "salut\nça va 👋"
+
+    def test_extra_keys_are_ignored(self):
+        from app.routes.chat import parse_chat_frame
+        assert parse_chat_frame('{"content": "hi", "sender_id": 99}') == "hi"
+
+    def test_content_at_the_limit_is_accepted(self):
+        from app.routes.chat import parse_chat_frame
+        from app.validation import MAX_MESSAGE
+        assert len(parse_chat_frame(json.dumps({"content": "a" * MAX_MESSAGE}))) == MAX_MESSAGE
+
+    @pytest.mark.parametrize("raw", [
+        "not json", "", "{", "[]", "[1]", '"text"', "42", "null", "true",
+        '{}', '{"content": null}', '{"content": 5}', '{"content": ["a"]}', '{"content": {"a": 1}}',
+        '{"content": ""}', '{"content": "   "}',
+        '{"content": "a\\u0000b"}', '{"content": "\\ud800"}', '{"content": "a\\u0001b"}',
+        '{"content": NaN}',
+        "[" * 100_000,
+    ])
+    def test_bad_frame_raises_400(self, raw):
+        from fastapi import HTTPException
+        from app.routes.chat import parse_chat_frame
+        with pytest.raises(HTTPException) as exc:
+            parse_chat_frame(raw)
+        assert exc.value.status_code == 400
+
+    def test_oversized_content_raises_400(self):
+        from fastapi import HTTPException
+        from app.routes.chat import parse_chat_frame
+        from app.validation import MAX_MESSAGE
+        with pytest.raises(HTTPException) as exc:
+            parse_chat_frame(json.dumps({"content": "a" * (MAX_MESSAGE + 1)}))
+        assert exc.value.status_code == 400
+        assert str(MAX_MESSAGE) in exc.value.detail
+
+    def test_two_megabyte_message_is_refused(self):
+        from fastapi import HTTPException
+        from app.routes.chat import parse_chat_frame
+        with pytest.raises(HTTPException):
+            parse_chat_frame(json.dumps({"content": "a" * 2_000_000}))
+
+
+@contextmanager
+def open_chat(chat_app, mock_redis, mock_conn=None):
+    """Connect to ``/chat/2`` as user 1 and leave the socket cleanly.
+
+    The pubsub never ends (``hang=True``), so the handler only finishes when
+    the client disconnects. Starlette's ``WebSocketTestSession`` cancels the
+    app the moment its ``with`` block exits, without waiting for it: a
+    handler still in its ``finally`` cleanup would be cancelled halfway and
+    the exit raises ``CancelledError``. So the client disconnects first and
+    waits for the handler's own last await (``pubsub.aclose``) before the
+    block is left.
+
+    Yields:
+        ``(websocket, mock_conn)``.
+    """
+    if mock_conn is None:
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=make_match_cursor())
+    mock_pool, _ = make_pool_mock(mock_conn)
+
+    cleaned_up = threading.Event()
+    pubsub = make_pubsub(hang=True)
+    pubsub.aclose = AsyncMock(side_effect=lambda: cleaned_up.set())
+    mock_redis.pubsub = MagicMock(return_value=pubsub)
+
+    with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+         patch("app.db.pool.pool", mock_pool):
+        with TestClient(chat_app) as tc:
+            with tc.websocket_connect("/chat/2", headers=WS_HEADERS) as ws:
+                yield ws, mock_conn
+                ws.close()
+                assert cleaned_up.wait(timeout=5), "chat handler did not finish its cleanup"
+
+
+class TestChatWebSocketInput:
+    def test_bad_frames_get_an_error_frame_and_the_socket_stays_open(self, chat_app, mock_redis):
+        bad_frames = [
+            "not json",
+            "[]",
+            "42",
+            "{}",
+            '{"content": 5}',
+            '{"content": ""}',
+            '{"content": "a\\u0000b"}',
+            '{"content": "\\ud800"}',
+            json.dumps({"content": "a" * 1001}),
+            json.dumps({"content": "a" * 2_000_000}),
+        ]
+
+        with open_chat(chat_app, mock_redis) as (ws, mock_conn):
+            for frame in bad_frames:
+                ws.send_text(frame)
+                reply = ws.receive_json()
+                assert reply["type"] == "error"
+                assert reply["detail"]
+
+        # Only the mutual-match lookup ran: not one bad frame reached the messages table.
+        assert mock_conn.execute.call_count == 1
+
+    def test_binary_frame_gets_an_error_frame(self, chat_app, mock_redis):
+        with open_chat(chat_app, mock_redis) as (ws, mock_conn):
+            ws.send_bytes(b"\x00\x01\x02")
+            reply = ws.receive_json()
+            assert reply["type"] == "error"
+            assert "text" in reply["detail"]
+            ws.send_text("not json")  # still alive after the binary frame
+            assert ws.receive_json()["type"] == "error"
+
+        assert mock_conn.execute.call_count == 1
+
+    def test_error_frame_goes_to_the_sender_only(self, chat_app, mock_redis):
+        with open_chat(chat_app, mock_redis) as (ws, _):
+            ws.send_text("garbage")
+            assert ws.receive_json()["type"] == "error"
+
+        mock_redis.publish.assert_not_called()
+
+    def test_valid_message_after_a_bad_one_is_saved_once_and_stripped(self, chat_app, mock_redis):
+        insert_cursor = AsyncMock()
+        insert_cursor.fetchone = AsyncMock(return_value={"id": 5, "created_at": datetime(2024, 1, 1)})
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(side_effect=[make_match_cursor(), insert_cursor, AsyncMock()])
+
+        with open_chat(chat_app, mock_redis, mock_conn) as (ws, _):
+            ws.send_text("garbage")
+            assert ws.receive_json()["type"] == "error"
+            ws.send_json({"content": "  hi there  "})
+            # The valid frame ends with two publishes (notification + room message).
+            deadline = time.monotonic() + 5
+            while mock_redis.publish.call_count < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        assert mock_redis.publish.call_count == 2
+        insert_call = mock_conn.execute.call_args_list[1]
+        assert "INSERT INTO messages" in insert_call.args[0]
+        assert insert_call.args[1] == (1, 2, "hi there")
+
+    def test_every_frame_goes_through_the_rate_limiter_even_invalid_and_binary_ones(self, chat_app, mock_redis):
+        """A garbage or binary frame still costs the server a reply, so it must count."""
+        limiter = AsyncMock(return_value=(True, 0))
+
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
+            with open_chat(chat_app, mock_redis) as (ws, _):
+                ws.send_text("garbage")
+                assert ws.receive_json()["type"] == "error"
+                ws.send_bytes(b"\x00\x01")
+                assert ws.receive_json()["type"] == "error"
+                ws.send_text("{}")
+                assert ws.receive_json()["type"] == "error"
+
+        assert limiter.await_count == 3
+
+    @pytest.mark.parametrize("target_id", [99999999999999999999, 2**31, 0, -1])
+    def test_impossible_target_id_is_closed_before_accept(self, chat_app, mock_redis, target_id):
+        from starlette.websockets import WebSocketDisconnect
+        mock_pool, mock_conn = make_pool_mock()
+        auth = AsyncMock(return_value="1")
+
+        with patch("app.routes.chat.get_current_user_id", new=auth), \
+            patch("app.db.pool.pool", mock_pool):
+            with TestClient(chat_app) as tc:
+                with pytest.raises(WebSocketDisconnect) as exc:
+                    with tc.websocket_connect(f"/chat/{target_id}", headers=WS_HEADERS):
+                        pass
+
+        assert exc.value.code == 1008
+        auth.assert_not_called()
+        mock_conn.execute.assert_not_called()
+
+
+class TestChatRateLimit:
+    def _limited_chat(self, chat_app, mock_redis, times):
+        """Open a chat whose limiter allows exactly ``times`` messages, then refuses."""
+        mock_redis.get = AsyncMock(return_value="1")
+        limiter = AsyncMock(side_effect=[(True, 0)] * times + [(False, 7)] * 20)
+        cursor = AsyncMock()
+        cursor.fetchone = AsyncMock(return_value={
+            "liked_by_me": True, "liked_by_them": True, "id": 5, "created_at": datetime(2024, 1, 1),
+        })
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock(return_value=cursor)
+        return limiter, mock_conn
+
+    def test_messages_over_the_limit_are_not_saved(self, chat_app, mock_redis):
+        """Frames are handled in order, so with a budget of 2 exactly the first two are saved."""
+        limiter, mock_conn = self._limited_chat(chat_app, mock_redis, times=2)
+
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
+            with open_chat(chat_app, mock_redis, mock_conn) as (ws, _):
+                for text in ("one", "two", "three", "four"):
+                    ws.send_json({"content": text})
+
+        saved = [c.args[1][2] for c in mock_conn.execute.call_args_list if "INSERT INTO messages" in c.args[0]]
+        assert saved == ["one", "two"]
+
+    def test_the_first_messages_within_the_budget_are_all_saved(self, chat_app, mock_redis):
+        limiter, mock_conn = self._limited_chat(chat_app, mock_redis, times=3)
+
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
+            with open_chat(chat_app, mock_redis, mock_conn) as (ws, _):
+                for text in ("one", "two", "three"):
+                    ws.send_json({"content": text})
+
+        saved = [c.args[1][2] for c in mock_conn.execute.call_args_list if "INSERT INTO messages" in c.args[0]]
+        assert saved == ["one", "two", "three"]
