@@ -70,19 +70,20 @@ def mock_redis():
     r.publish = AsyncMock()
     r.pubsub = MagicMock(return_value=make_pubsub())
     r.aclose = AsyncMock()
+    # lifespan() registers the Lua script off this client and stores the result
+    # on app.state; here that yields a stub which always allows. These tests
+    # cover chat logic, not the limiter (tests/security/test_rate_limit.py does
+    # that, against a real Redis).
+    # {allowed, remaining, retry_after} — the shape token_bucket.lua returns.
+    r.register_script = MagicMock(return_value=AsyncMock(return_value=[1, 999, 0]))
     return r
 
 
 @pytest.fixture
 def chat_app(mock_redis):
-    # messageLimiter is awaited directly by the handler (not through Depends),
-    # so conftest's dependency_overrides cannot switch it off. Like the HTTP
-    # limiters there, it is disabled: these tests cover the chat logic, and its
-    # user_identifier would otherwise call the real get_current_user_id.
     with patch("app.open_pool", new_callable=AsyncMock), \
          patch("app.close_pool", new_callable=AsyncMock), \
-         patch("redis.asyncio.Redis", return_value=mock_redis), \
-         patch("app.routes.chat.messageLimiter", new_callable=AsyncMock):
+         patch("redis.asyncio.Redis", return_value=mock_redis):
         from app import create_app
         yield create_app()
 
@@ -460,9 +461,9 @@ class TestChatWebSocketInput:
 
     def test_every_frame_goes_through_the_rate_limiter_even_invalid_and_binary_ones(self, chat_app, mock_redis):
         """A garbage or binary frame still costs the server a reply, so it must count."""
-        limiter = AsyncMock()
+        limiter = AsyncMock(return_value=(True, 0))
 
-        with patch("app.routes.chat.messageLimiter", new=limiter):
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
             with open_chat(chat_app, mock_redis) as (ws, _):
                 ws.send_text("garbage")
                 assert ws.receive_json()["type"] == "error"
@@ -480,7 +481,7 @@ class TestChatWebSocketInput:
         auth = AsyncMock(return_value="1")
 
         with patch("app.routes.chat.get_current_user_id", new=auth), \
-             patch("app.db.pool.pool", mock_pool):
+            patch("app.db.pool.pool", mock_pool):
             with TestClient(chat_app) as tc:
                 with pytest.raises(WebSocketDisconnect) as exc:
                     with tc.websocket_connect(f"/chat/{target_id}", headers=WS_HEADERS):
@@ -493,17 +494,9 @@ class TestChatWebSocketInput:
 
 class TestChatRateLimit:
     def _limited_chat(self, chat_app, mock_redis, times):
-        """Open a chat whose limiter allows ``times`` messages a minute.
-
-        The real ``user_identifier`` runs (it reads the session from the mocked
-        Redis), so the whole limiter path is exercised, not just the call.
-        """
-        from fastapi_limiter.depends import WebSocketRateLimiter
-        from pyrate_limiter import Duration, Limiter, Rate
-        from app.security.rate_limit import user_identifier
-
+        """Open a chat whose limiter allows exactly ``times`` messages, then refuses."""
         mock_redis.get = AsyncMock(return_value="1")
-        limiter = WebSocketRateLimiter(limiter=Limiter(Rate(times, Duration.MINUTE)), identifier=user_identifier)
+        limiter = AsyncMock(side_effect=[(True, 0)] * times + [(False, 7)] * 20)
         cursor = AsyncMock()
         cursor.fetchone = AsyncMock(return_value={
             "liked_by_me": True, "liked_by_them": True, "id": 5, "created_at": datetime(2024, 1, 1),
@@ -513,14 +506,10 @@ class TestChatRateLimit:
         return limiter, mock_conn
 
     def test_messages_over_the_limit_are_not_saved(self, chat_app, mock_redis):
-        """Frames are handled in order, so with a budget of 2 exactly the first two are saved.
-
-        What happens to the socket once the limiter refuses is deliberately not
-        asserted here: it is the limiter callback's business, and may change.
-        """
+        """Frames are handled in order, so with a budget of 2 exactly the first two are saved."""
         limiter, mock_conn = self._limited_chat(chat_app, mock_redis, times=2)
 
-        with patch("app.routes.chat.messageLimiter", new=limiter):
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
             with open_chat(chat_app, mock_redis, mock_conn) as (ws, _):
                 for text in ("one", "two", "three", "four"):
                     ws.send_json({"content": text})
@@ -531,7 +520,7 @@ class TestChatRateLimit:
     def test_the_first_messages_within_the_budget_are_all_saved(self, chat_app, mock_redis):
         limiter, mock_conn = self._limited_chat(chat_app, mock_redis, times=3)
 
-        with patch("app.routes.chat.messageLimiter", new=limiter):
+        with patch("app.routes.chat.check_chat_message_limit", new=limiter):
             with open_chat(chat_app, mock_redis, mock_conn) as (ws, _):
                 for text in ("one", "two", "three"):
                     ws.send_json({"content": text})
