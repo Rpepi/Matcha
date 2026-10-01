@@ -1,11 +1,7 @@
 import { Link } from "react-router-dom";
 import type { BrowseProfile } from "../api/browse";
 import { CARD_ASPECT_RATIO } from "../lib/browseLayout";
-
-function placeholderPhotoUrl(profile: BrowseProfile): string {
-    const index = (profile.id % 70) + 1;
-    return `https://i.pravatar.cc/600?img=${index}`;
-}
+import { placeholderPhotoUrl } from "../lib/placeholderPhoto";
 
 export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
     return (
@@ -18,7 +14,7 @@ export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
                 style={{ aspectRatio: CARD_ASPECT_RATIO }}
             >
                 <img
-                    src={placeholderPhotoUrl(profile)}
+                    src={placeholderPhotoUrl(profile.id)}
                     alt=""
                     className="h-full w-full object-cover"
                 />
