@@ -1,20 +1,19 @@
 import { useState, useEffect, type SubmitEvent } from "react";
 import { login } from "../api/auth";
 import { useProfileContext } from "../context/ProfileContext";
+import { useToast } from "../context/ToastContext";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "../components/AuthLayout";
-import { Field, Button, FormNotice, OrDivider } from "../components/FormControls";
+import { Field, Button, OrDivider } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
-import ErrorPopup from "../components/ErrorPopup";
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('')
     const [searchParams, setSearchParams] = useSearchParams();
-    const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
     const navigate = useNavigate()
     const { refetch } = useProfileContext()
+    const { showError } = useToast()
     let loginPossible = false
 
     if ( password && email )
@@ -25,11 +24,11 @@ export default function LoginPage() {
     useEffect(() => {
         if (!searchParams.get('error'))
             return;
-        setOauthErrorOpen(true);
+        showError("We couldn't sign you in with Google. Please try again or use your email and password.");
         const next = new URLSearchParams(searchParams);
         next.delete('error');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams]);
+    }, [searchParams, setSearchParams, showError]);
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -41,7 +40,7 @@ export default function LoginPage() {
         }
         else {
             const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Invalid email or password')
+            showError(data?.detail ?? 'Invalid email or password')
         }
     }
 
@@ -79,8 +78,6 @@ export default function LoginPage() {
                     required
                 />
 
-                <FormNotice tone="error">{error}</FormNotice>
-
                 <Button disabled={!loginPossible} type="submit" className="mt-2">
                     Log in
                 </Button>
@@ -92,12 +89,6 @@ export default function LoginPage() {
                     Register now
                 </Link>
             </p>
-
-            <ErrorPopup
-                open={oauthErrorOpen}
-                onOpenChange={setOauthErrorOpen}
-                message="We couldn't sign you in with Google. Please try again or use your email and password."
-            />
         </AuthLayout>
     );
 }
