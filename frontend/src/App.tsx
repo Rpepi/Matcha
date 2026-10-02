@@ -1,6 +1,7 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Outlet } from "react-router-dom";
 import { ProfileProvider } from "./context/ProfileContext";
 import { ToastProvider } from "./context/ToastContext";
+import { BrowseProvider } from "./context/BrowseContext";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import BrowsePage from "./pages/BrowsePage";
@@ -20,11 +21,13 @@ function App() {
                 <ToastProvider>
                     <Routes>
                         <Route path="/" element={<GuestRoute><LandingPage /></GuestRoute>} />
-                        <Route path="/browse" element={<ProtectedRoute><BrowsePage /></ProtectedRoute>} />
+                        <Route element={<BrowseProvider><Outlet /></BrowseProvider>}>
+                            <Route path="/browse" element={<ProtectedRoute><BrowsePage /></ProtectedRoute>} />
+                            <Route path="/users/:id" element={<ProtectedRoute><UserPage /></ProtectedRoute>} />
+                        </Route>
                         <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                         <Route path="/complete-profile" element={<OnboardingRoute><CompleteProfilePage /></OnboardingRoute>} />
-                        <Route path="/users/:id" element={<ProtectedRoute><UserPage /></ProtectedRoute>} />
                         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
                         <Route path="/verify" element={<VerifyPage />} />
                         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />

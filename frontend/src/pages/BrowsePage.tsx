@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Loader2 } from "lucide-react";
-import { useBrowseProfiles } from "@/hooks/useBrowseProfiles";
-import { useItemsPerScreen } from "@/hooks/useItemsPerScreen";
+import { useBrowseContext } from "@/context/BrowseContext";
 import { useLockBodyScroll } from "@/hooks/useLockBodyScroll";
 import { useWheelAdvance } from "@/hooks/useWheelAdvance";
 import { useToast } from "@/context/ToastContext";
@@ -11,8 +10,7 @@ import { ROW_MAX_WIDTH, MIN_GAP, CARD_WIDTH } from "@/lib/browseLayout";
 import { cardVariants } from "@/lib/browseAnimation";
 
 export default function BrowsePage() {
-    const itemsPerScreen = useItemsPerScreen();
-    const { profiles, cursor, advance, isLoading, error, atEnd } = useBrowseProfiles(itemsPerScreen);
+    const { itemsPerScreen, profiles, cursor, advance, isLoading, error, atEnd } = useBrowseContext();
     const batch = profiles.slice(cursor, cursor + itemsPerScreen);
     const { showNotice } = useToast();
 
