@@ -2,10 +2,6 @@ export const STAGGER_SECONDS = 0;
 export const SLIDE_SECONDS = 0.4;
 export const EXIT_EXTRA_DELAY_SECONDS = 0.1;
 
-export function transitionDurationMs(cardCount: number): number {
-    return (cardCount - 1) * STAGGER_SECONDS * 1000 + EXIT_EXTRA_DELAY_SECONDS * 1000 + SLIDE_SECONDS * 1000;
-}
-
 export const cardVariants = {
     hidden: {
         y: "100vh",
@@ -22,3 +18,8 @@ export const cardVariants = {
         transition: { delay: i * STAGGER_SECONDS + EXIT_EXTRA_DELAY_SECONDS, duration: SLIDE_SECONDS },
     }),
 };
+
+export function transitionDurationMs(cardCount: number): number {
+    const { delay, duration } = cardVariants.exit(cardCount - 1).transition;
+    return (delay + duration) * 1000;
+}
