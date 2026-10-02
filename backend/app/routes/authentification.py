@@ -15,7 +15,7 @@ from app.utils import require_json
 from app.validation import clean_str, clean_email, MAX_EMAIL, MAX_NAME, MAX_PASSWORD, MAX_TOKEN
 from app.log import get_logger
 from app.security.session import get_current_user_id
-from app.security.rate_limit import rate_limit
+from app.security.rate_limiter.rate_limit import rate_limit
 
 
 logger = get_logger(__name__)

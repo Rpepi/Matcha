@@ -8,7 +8,7 @@ import os
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
-from app.security.rate_limit import rate_limit
+from app.security.rate_limiter.rate_limit import rate_limit
 from app.utils import require_json
 from app.validation import clean_str, parse_int_param, valid_target_id, MAX_REASON
 from app.log import get_logger

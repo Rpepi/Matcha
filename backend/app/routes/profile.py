@@ -11,7 +11,7 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.token import generate_verification_token, send_verification_email
-from app.security.rate_limit import rate_limit
+from app.security.rate_limiter.rate_limit import rate_limit
 from app.utils import require_json, is_valid_image, process_photo
 from app.validation import (
     clean_str, clean_email, clean_choice, clean_int, clean_float,

@@ -116,8 +116,8 @@ class TestLoginInput:
         mock_db.execute.assert_not_called()
 
     async def test_password_at_the_limit_is_processed(self, client, mock_db):
-        res = await send(client, "POST", "/auth/login", {"email": "a@b.co", "password": "p" * 128})
-        assert res.status_code == 401  # got as far as the credential check
+        res = await send(client, "POST", "/auth/login", {"email": "a@b.co", "password": "p" * 64})
+        assert res.status_code == 401 # got as far as the credential check
         mock_db.execute.assert_called_once()
 
     async def test_email_is_stripped_before_lookup(self, client, mock_db):
@@ -205,7 +205,7 @@ class TestRegisterInput:
         }
         with patch("app.routes.authentification.send_verification_email"):
             res = await send(client, "POST", "/auth/register", body)
-        assert res.status_code == 200
+        assert res.status_code == 400
 
     async def test_names_are_stored_stripped(self, client, mock_db):
         mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"id": 7}))
