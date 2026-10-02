@@ -6,6 +6,7 @@ import { useLockBodyScroll } from "@/hooks/useLockBodyScroll";
 import { useWheelAdvance } from "@/hooks/useWheelAdvance";
 import { useToast } from "@/context/ToastContext";
 import ProfileCard from "@/components/ProfileCard";
+import BrowseFilterButton from "@/components/browse/BrowseFilterButton";
 import { ROW_MAX_WIDTH, MIN_GAP, CARD_WIDTH } from "@/lib/browseLayout";
 import { cardVariants } from "@/lib/browseAnimation";
 
@@ -23,6 +24,8 @@ export default function BrowsePage() {
 
     return (
         <div className="flex min-h-[calc(100dvh-5rem)] flex-col items-center justify-center p-6 md:min-h-dvh">
+            <BrowseFilterButton />
+
             {!error && batch.length === 0 && isLoading && <Loader2 className="h-6 w-6 animate-spin text-matcha" />}
 
             {!error && batch.length === 0 && !isLoading && (
