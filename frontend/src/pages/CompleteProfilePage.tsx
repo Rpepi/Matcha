@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import AuthLayout from "../components/AuthLayout";
 import LoadingScreen from "../components/LoadingScreen";
-import { FormNotice } from "../components/FormControls";
+import { useToast } from "../context/ToastContext";
 import { useOnboarding } from "../hooks/useOnboarding";
 import StepProgress from "../components/onboarding/StepProgress";
 import GenderStep from "../components/onboarding/steps/GenderStep";
@@ -46,6 +47,12 @@ export default function CompleteProfilePage() {
         handleBirthdateNext,
         handleFinish,
     } = useOnboarding();
+
+    const { showError } = useToast();
+
+    useEffect(() => {
+        if (error) showError(error);
+    }, [error, showError]);
 
     if (isHydrating) {
         return <LoadingScreen />;
@@ -131,10 +138,6 @@ export default function CompleteProfilePage() {
                     isLoading={isLoading}
                 />
             )}
-
-            <div className="mt-4">
-                <FormNotice tone="error">{error}</FormNotice>
-            </div>
         </AuthLayout>
     );
 }
