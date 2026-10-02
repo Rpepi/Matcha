@@ -4,17 +4,17 @@ export const EXIT_EXTRA_DELAY_SECONDS = 0.1;
 
 export const cardVariants = {
     hidden: {
-        y: "100vh",
-        opacity: 0,
+        x: "100vw",
+        opacity: 1,
     },
     visible: (i: number) => ({
-        y: 0,
+        x: 0,
         opacity: 1,
         transition: { delay: i * STAGGER_SECONDS, duration: SLIDE_SECONDS, ease: "easeOut" as const },
     }),
     exit: (i: number) => ({
-        y: "-100vh",
-        opacity: 0,
+        x: "-100vw",
+        opacity: 1,
         transition: { delay: i * STAGGER_SECONDS + EXIT_EXTRA_DELAY_SECONDS, duration: SLIDE_SECONDS },
     }),
 };

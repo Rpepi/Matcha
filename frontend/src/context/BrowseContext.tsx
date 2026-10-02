@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useBrowseProfiles } from "@/hooks/useBrowseProfiles";
 import { useItemsPerScreen } from "@/hooks/useItemsPerScreen";
 import type { BrowseProfile } from "@/api/browse";
+import type { BrowseFilters } from "@/lib/browseFilters";
 
 interface BrowseContextValue {
     itemsPerScreen: 1 | 3 | 4 | 5;
@@ -11,16 +12,20 @@ interface BrowseContextValue {
     isLoading: boolean;
     error: string | null;
     atEnd: boolean;
+    filters: BrowseFilters;
+    applyFilters: (next: BrowseFilters) => void;
 }
 
 const BrowseContext = createContext<BrowseContextValue | undefined>(undefined);
 
 export function BrowseProvider({ children }: { children: ReactNode }) {
     const itemsPerScreen = useItemsPerScreen();
-    const { profiles, cursor, advance, isLoading, error, atEnd } = useBrowseProfiles(itemsPerScreen);
+    const { profiles, cursor, advance, isLoading, error, atEnd, filters, applyFilters } = useBrowseProfiles(itemsPerScreen);
 
     return (
-        <BrowseContext.Provider value={{ itemsPerScreen, profiles, cursor, advance, isLoading, error, atEnd }}>
+        <BrowseContext.Provider
+            value={{ itemsPerScreen, profiles, cursor, advance, isLoading, error, atEnd, filters, applyFilters }}
+        >
             {children}
         </BrowseContext.Provider>
     );

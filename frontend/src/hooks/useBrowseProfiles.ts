@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getBrowseProfiles, type BrowseProfile } from "../api/browse";
 import { useToast } from "../context/ToastContext";
+import { DEFAULT_FILTERS, type BrowseFilters } from "../lib/browseFilters";
 
 const PAGE_SIZE = 20;
 
@@ -11,6 +12,7 @@ interface Buffer {
 }
 
 export function useBrowseProfiles(itemsPerScreen: number) {
+    const [filters, setFilters] = useState<BrowseFilters>(DEFAULT_FILTERS);
     const [buffer, setBuffer] = useState<Buffer>({ old: [], new: [], cursor: 0 });
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(true);
@@ -26,7 +28,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         setIsLoading(true);
         setError(null);
 
-        getBrowseProfiles(page)
+        getBrowseProfiles(page, filters)
             .then(async (response) => {
                 if (!response.ok) {
                     const data = await response.json().catch(() => null);
@@ -59,7 +61,14 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         return () => {
             cancelled = true;
         };
-    }, [page, showError]);
+    }, [page, filters, showError]);
+
+    const applyFilters = useCallback((next: BrowseFilters) => {
+        setFilters(next);
+        setBuffer({ old: [], new: [], cursor: 0 });
+        setHasMore(true);
+        setPage(0);
+    }, []);
 
     const loadMore = useCallback(() => {
         if (hasMore && !isLoading) setPage((p) => p + 1);
@@ -88,5 +97,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         isLoading,
         error,
         atEnd,
+        filters,
+        applyFilters,
     };
 }
