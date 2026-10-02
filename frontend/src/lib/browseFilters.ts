@@ -6,7 +6,7 @@ export interface BrowseFilters {
     minTags: number;
 }
 
-export const AGE_MIN = 18;
+export const AGE_MIN = 16;
 export const AGE_MAX = 99;
 export const DISTANCE_MAX_KM = 200;
 export const FAME_MAX = 100;
