@@ -18,6 +18,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     const [hasMore, setHasMore] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
     const { showError } = useToast();
 
     const profiles = [...buffer.old, ...buffer.new];
@@ -61,7 +62,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         return () => {
             cancelled = true;
         };
-    }, [page, filters, showError]);
+    }, [page, filters, attempt, showError]);
 
     const applyFilters = useCallback((next: BrowseFilters) => {
         setFilters(next);
@@ -75,12 +76,16 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     }, [hasMore, isLoading]);
 
     useEffect(() => {
-        if (profiles.length > 0 && !isLoading && hasMore && buffer.cursor + itemsPerScreen >= profiles.length) {
+        if (profiles.length > 0 && !isLoading && !error && hasMore && buffer.cursor + itemsPerScreen >= profiles.length) {
             loadMore();
         }
-    }, [profiles.length, buffer.cursor, itemsPerScreen, hasMore, isLoading, loadMore]);
+    }, [profiles.length, buffer.cursor, itemsPerScreen, hasMore, isLoading, error, loadMore]);
 
     function advance() {
+        if (error && buffer.cursor + itemsPerScreen >= profiles.length) {
+            setAttempt((a) => a + 1);
+            return;
+        }
         setBuffer((prev) => {
             const bufferedCount = prev.old.length + prev.new.length;
             const wouldExceedBuffer = prev.cursor + itemsPerScreen >= bufferedCount;

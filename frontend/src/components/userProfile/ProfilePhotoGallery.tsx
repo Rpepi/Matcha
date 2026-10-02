@@ -32,10 +32,12 @@ export default function ProfilePhotoGallery({ profile }: { profile: UserProfileD
                 <Link to="/browse" aria-label="Back to Browse" className={buttonClasses}>
                     <ArrowLeft className="h-5 w-5" />
                 </Link>
+            </div>
 
+            <div className="absolute inset-x-4 bottom-4 flex flex-col gap-3">
                 {photos.length > 1 && (
                     <div
-                        className="grid flex-1 gap-1.5"
+                        className="mx-auto grid w-[140px] gap-1"
                         style={{ gridTemplateColumns: `repeat(${photos.length}, minmax(0, 1fr))` }}
                     >
                         {photos.map((photo, i) => (
@@ -46,14 +48,14 @@ export default function ProfilePhotoGallery({ profile }: { profile: UserProfileD
                         ))}
                     </div>
                 )}
-            </div>
 
-            {profile.is_online && (
-                <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full bg-paper/90 px-3 py-1.5 text-sm font-medium text-ink">
-                    <span className="h-2 w-2 rounded-full bg-matcha" />
-                    Active now
-                </div>
-            )}
+                {profile.is_online && (
+                    <div className="flex items-center gap-2 self-start rounded-full bg-paper/90 px-3 py-1.5 text-sm font-medium text-ink">
+                        <span className="h-2 w-2 rounded-full bg-matcha" />
+                        Active now
+                    </div>
+                )}
+            </div>
 
             {photos.length > 1 && (
                 <>
