@@ -24,13 +24,10 @@ export default function VerifyPage() {
     }, []);
 
     return (
-        <>
-
-        <div className="message-container">
-            {info && <p className="msg-success">{info}</p>}
-            {error && <p className="msg-error">{error}</p>}
-            {!info && !error && <p className="msg-loading">Verification in progress...</p>}
+        <div className="flex min-h-dvh items-center justify-center p-6 text-center">
+            {info && <p className="text-sm font-medium text-matcha-dark">{info}</p>}
+            {error && <p className="text-sm font-medium text-pink">{error}</p>}
+            {!info && !error && <p className="text-sm text-ink/60">Verification in progress...</p>}
         </div>
-        </>
     )
 }

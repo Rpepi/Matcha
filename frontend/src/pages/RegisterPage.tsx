@@ -1,15 +1,14 @@
 import { useState, useEffect, type SubmitEvent } from "react";
 import { register } from "../api/auth";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useToast } from "../context/ToastContext";
 import AuthLayout from "../components/AuthLayout";
 import {
     Field,
     Button,
-    FormNotice,
     OrDivider,
 } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
-import ErrorPopup from "../components/ErrorPopup";
 
 export default function RegisterPage() {
     const [password, setPassword] = useState('');
@@ -17,34 +16,30 @@ export default function RegisterPage() {
     const [first_name, setFirstName] = useState('');
     const [last_name, setLastName] = useState('');
 
-    const [error, setError] = useState('');
-    const [info, setInfo] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [oauthErrorOpen, setOauthErrorOpen] = useState(false);
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
+    const { showError, showNotice } = useToast();
 
     useEffect(() => {
         if (!searchParams.get('error'))
             return;
-        setOauthErrorOpen(true);
+        showError("We couldn't sign you up with Google. Please try again or register with your email and password.");
         const next = new URLSearchParams(searchParams);
         next.delete('error');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams]);
+    }, [searchParams, setSearchParams, showError]);
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (isLoading)
             return;
-        setError('');
-        setInfo('');
         setIsLoading(true)
         const response = await register(password, email, first_name, last_name);
 
         if (response.ok)
         {
-            setInfo('Account Created Succesfully, Check your email to verify your account.');
+            showNotice('Account created successfully — check your email to verify your account.');
             setTimeout(() => navigate('/login'), 3000);
             return ;
         }
@@ -52,10 +47,10 @@ export default function RegisterPage() {
         {
             try {
                 const data = await response.json();
-                setError(data.detail || 'Invalid or missing field.');
+                showError(data.detail || 'Invalid or missing field.');
             }
             catch {
-                setError(`Server error (${response.status}). Please try again`);
+                showError(`Server error (${response.status}). Please try again`);
             }
         }
         setIsLoading(false);
@@ -116,9 +111,6 @@ export default function RegisterPage() {
                     required
                 />
 
-                <FormNotice tone="info">{info}</FormNotice>
-                <FormNotice tone="error">{error}</FormNotice>
-
                 <Button type="submit" disabled={isLoading} className="mt-2">
                     {isLoading ? 'Creating account…' : 'Create account'}
                 </Button>
@@ -130,12 +122,6 @@ export default function RegisterPage() {
                     Log in
                 </Link>
             </p>
-
-            <ErrorPopup
-                open={oauthErrorOpen}
-                onOpenChange={setOauthErrorOpen}
-                message="We couldn't sign you up with Google. Please try again or register with your email and password."
-            />
         </AuthLayout>
     );
 }
