@@ -8,7 +8,7 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import create_session
 from app.security.passwords import hash_password
-from app.security.rate_limit import rate_limit
+from app.security.rate_limiter.rate_limit import rate_limit
 from app.log import get_logger
 import os
 import secrets

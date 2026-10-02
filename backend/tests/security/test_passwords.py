@@ -53,3 +53,10 @@ class TestIsPasswordValid:
 
     def test_short_common_word_rejected(self):
         assert is_password_valid("abc123") is False
+
+    def test_short_password_rejected(self):
+        assert is_password_valid("a2") is False
+
+    def test_long_password_rejected(self):
+        assert is_password_valid("fjpkdssjnvosjr4323jcnsken8766Rkuidcjuie9876543456fjenbrjHUIOIHGFDSERTY789876545678") is False
+    
