@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getBrowseProfiles, type BrowseProfile } from "../api/browse";
 
 const PAGE_SIZE = 20;
@@ -9,12 +9,14 @@ interface Buffer {
     cursor: number;
 }
 
-export function useBrowseProfiles() {
+export function useBrowseProfiles(itemsPerScreen: number) {
     const [buffer, setBuffer] = useState<Buffer>({ old: [], new: [], cursor: 0 });
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const profiles = [...buffer.old, ...buffer.new];
 
     useEffect(() => {
         let cancelled = false;
@@ -53,21 +55,26 @@ export function useBrowseProfiles() {
         };
     }, [page]);
 
-    function loadMore() {
+    const loadMore = useCallback(() => {
         if (hasMore && !isLoading) setPage((p) => p + 1);
-    }
+    }, [hasMore, isLoading]);
 
-    function advance(itemsPerScreen: number) {
+    useEffect(() => {
+        if (profiles.length > 0 && !isLoading && hasMore && buffer.cursor + itemsPerScreen >= profiles.length) {
+            loadMore();
+        }
+    }, [profiles.length, buffer.cursor, itemsPerScreen, hasMore, isLoading, loadMore]);
+
+    function advance() {
         setBuffer((prev) => ({ ...prev, cursor: prev.cursor + itemsPerScreen }));
     }
 
     return {
-        profiles: [...buffer.old, ...buffer.new],
+        profiles,
         cursor: buffer.cursor,
         advance,
         hasMore,
         isLoading,
         error,
-        loadMore,
     };
 }
