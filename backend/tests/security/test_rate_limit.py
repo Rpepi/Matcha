@@ -18,9 +18,9 @@ from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.cache.dependencies import get_redis
-from app.security.rate_limit import consume, rate_limit
+from app.security.rate_limiter.rate_limit import consume, rate_limit
 
-LUA = (Path(__file__).resolve().parents[2] / "app" / "security" / "token_bucket.lua").read_text()
+LUA = (Path(__file__).resolve().parents[2] / "app" / "security" / "rate_limiter" /"token_bucket.lua").read_text()
 
 
 @pytest.fixture
@@ -191,7 +191,7 @@ class TestRateLimitDependency:
         async def fake_user(cookie, _redis):
             return {"cookie-a": "1", "cookie-b": "2"}[cookie]
 
-        monkeypatch.setattr("app.security.rate_limit.get_current_user_id", fake_user)
+        monkeypatch.setattr("app.security.rate_limiter.rate_limit.get_current_user_id", fake_user)
         application = build_app(script, redis_client, by="account", limit=2, seconds=60)
 
         async with client_for(application, cookie="cookie-a") as a:

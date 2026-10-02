@@ -299,7 +299,7 @@ class TestGetUserPhoto:
         ])
 
         with patch("app.routes.users.os.path.isfile", return_value=True), \
-             patch("app.routes.users.FileResponse", return_value=Response(content=b"jpeg-bytes", media_type="image/jpeg")) as mock_file_response:
+            patch("app.routes.users.FileResponse", return_value=Response(content=b"jpeg-bytes", media_type="image/jpeg")) as mock_file_response:
             res = await auth_client.get("/users/2/photos/1")
 
         assert res.status_code == 200

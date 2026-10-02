@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from starlette.websockets import WebSocketState
 from app.security.session import get_current_user_id
-from app.security.rate_limit import check_chat_message_limit
+from app.security.rate_limiter.rate_limit import check_chat_message_limit
 from app.validation import clean_str, MAX_MESSAGE, MAX_ID
 from app.db import pool as pool_module
 from app.log import get_logger

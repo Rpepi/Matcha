@@ -21,7 +21,7 @@ if not REDIS_PASSWORD:
     raise RuntimeError("env variable REDIS_PASSWORD not set")
 
 retry = Retry(FullJitterBackoff(), 3, (RedisConnectionError, RedisTimeoutError))
-lua = (Path(__file__).parent / "security" / "token_bucket.lua").read_text()
+lua = (Path(__file__).parent / "security" / "rate_limiter" /"token_bucket.lua").read_text()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

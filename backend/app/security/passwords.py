@@ -1,12 +1,16 @@
 import asyncio
 from argon2 import PasswordHasher
 from pathlib import Path
+from app.log import get_logger
+
 
 ph = PasswordHasher(
     time_cost=2,
     memory_cost=19456,
     parallelism=1,
 )
+
+logger = get_logger(__name__)
 
 _COMMON_PASSWORDS = set(Path(__file__).with_name("10k-most-common.txt").read_text().splitlines())
 
@@ -44,7 +48,7 @@ async def verify_password(hashed: str, password: str) -> bool:
         return False
 
 
-def is_password_valid(pw: str) -> bool:
+def is_password_valid(pw: str) -> bool :
     """Check that a password is not trivially weak.
 
     Rejects passwords made only of digits, only of letters, or found
@@ -56,10 +60,21 @@ def is_password_valid(pw: str) -> bool:
     Returns:
         True if the password is acceptable, False otherwise.
     """
+    if len(pw) < 8:
+        logger.info("Password too short")
+        return False
+    if len(pw) > 64:
+        logger.info("Password too long")
+        return False
     if pw.isdigit():
+        logger.info("Password contain only digits")
         return False
     if pw.isalpha():
+        logger.info("Password contain only letters")
         return False
     if pw.lower() in _COMMON_PASSWORDS:
+        logger.info("Password is too common")
         return False
+    
+
     return True
