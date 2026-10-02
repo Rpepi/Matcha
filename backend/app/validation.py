@@ -7,10 +7,10 @@ from fastapi import HTTPException
 # so an oversized value is refused with a 400 instead of failing the INSERT.
 MAX_EMAIL = 100
 MAX_NAME = 50
+MAX_PASSWORD = 64
 MAX_CITY = 100
 MAX_BIO = 500
 MAX_TAG = 50
-MAX_PASSWORD = 128
 MAX_REASON = 500
 MAX_MESSAGE = 1000
 MAX_SEARCH = 50
