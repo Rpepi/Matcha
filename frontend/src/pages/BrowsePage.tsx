@@ -1,33 +1,30 @@
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { useBrowseProfiles } from "@/hooks/useBrowseProfiles";
 import { useItemsPerScreen } from "@/hooks/useItemsPerScreen";
 import { useLockBodyScroll } from "@/hooks/useLockBodyScroll";
 import { useWheelAdvance } from "@/hooks/useWheelAdvance";
+import { useToast } from "@/context/ToastContext";
 import ProfileCard from "@/components/ProfileCard";
 import { ROW_MAX_WIDTH, MIN_GAP, CARD_WIDTH } from "@/lib/browseLayout";
 import { cardVariants } from "@/lib/browseAnimation";
 
 export default function BrowsePage() {
     const itemsPerScreen = useItemsPerScreen();
-    const { profiles, cursor, advance, hasMore, isLoading, error } = useBrowseProfiles(itemsPerScreen);
+    const { profiles, cursor, advance, isLoading, error, atEnd } = useBrowseProfiles(itemsPerScreen);
     const batch = profiles.slice(cursor, cursor + itemsPerScreen);
+    const { showNotice } = useToast();
 
     useLockBodyScroll();
-    useWheelAdvance({
-        cursor,
-        itemsPerScreen,
-        bufferedCount: profiles.length,
-        batchSize: batch.length,
-        hasMore,
-        isLoading,
-        advance,
-    });
+    useWheelAdvance({ batchSize: batch.length, advance });
+
+    useEffect(() => {
+        if (atEnd) showNotice("That's everyone for now — check back later.");
+    }, [atEnd, showNotice]);
 
     return (
         <div className="flex min-h-[calc(100dvh-5rem)] flex-col items-center justify-center p-6 md:min-h-dvh">
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
             {!error && batch.length === 0 && isLoading && <Loader2 className="h-6 w-6 animate-spin text-matcha" />}
 
             {!error && batch.length === 0 && !isLoading && (

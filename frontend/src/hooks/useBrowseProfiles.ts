@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getBrowseProfiles, type BrowseProfile } from "../api/browse";
+import { useToast } from "../context/ToastContext";
 
 const PAGE_SIZE = 20;
 
@@ -15,8 +16,10 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     const [hasMore, setHasMore] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { showError } = useToast();
 
     const profiles = [...buffer.old, ...buffer.new];
+    const atEnd = !hasMore && buffer.cursor + itemsPerScreen >= profiles.length;
 
     useEffect(() => {
         let cancelled = false;
@@ -44,7 +47,10 @@ export function useBrowseProfiles(itemsPerScreen: number) {
                 setHasMore(batch.length === PAGE_SIZE);
             })
             .catch((err) => {
-                if (!cancelled) setError(err instanceof Error ? err.message : "Could not load profiles. Please try again.");
+                if (cancelled) return;
+                const message = err instanceof Error ? err.message : "Could not load profiles. Please try again.";
+                setError(message);
+                showError(message);
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);
@@ -53,7 +59,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         return () => {
             cancelled = true;
         };
-    }, [page]);
+    }, [page, showError]);
 
     const loadMore = useCallback(() => {
         if (hasMore && !isLoading) setPage((p) => p + 1);
@@ -66,7 +72,12 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     }, [profiles.length, buffer.cursor, itemsPerScreen, hasMore, isLoading, loadMore]);
 
     function advance() {
-        setBuffer((prev) => ({ ...prev, cursor: prev.cursor + itemsPerScreen }));
+        setBuffer((prev) => {
+            const bufferedCount = prev.old.length + prev.new.length;
+            const wouldExceedBuffer = prev.cursor + itemsPerScreen >= bufferedCount;
+            if (wouldExceedBuffer && (isLoading || !hasMore)) return prev;
+            return { ...prev, cursor: prev.cursor + itemsPerScreen };
+        });
     }
 
     return {
@@ -76,5 +87,6 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         hasMore,
         isLoading,
         error,
+        atEnd,
     };
 }
