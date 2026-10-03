@@ -30,18 +30,15 @@ export default function ProfilePage() {
                 </Link>
             </div>
 
-            <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:gap-16">
-                <div className="w-full shrink-0 lg:w-[360px]">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+                <div className="flex w-full shrink-0 flex-col gap-6 rounded-3xl bg-grey/5 p-6 lg:w-[360px]">
                     <ProfilePhotos photos={profile.photos} />
+                    <ProfileTags tags={profile.tags} />
+                    <ProfileAbout bio={profile.bio} emptyText="Empty" />
                 </div>
 
-                <div className="flex min-w-0 flex-1 flex-col gap-5">
+                <div className="flex min-w-0 flex-1 flex-col gap-5 rounded-3xl bg-grey/5 p-6 ">
                     <ProfileDetails profile={profile} />
-
-                    <div className="h-px bg-grey/20" />
-
-                    <ProfileAbout bio={profile.bio} />
-                    <ProfileTags tags={profile.tags} />
                 </div>
             </div>
         </div>
