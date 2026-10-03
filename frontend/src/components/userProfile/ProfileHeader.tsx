@@ -1,9 +1,16 @@
 import { Flame } from "lucide-react";
-import type { UserProfileDetail } from "@/api/users";
 import { calculateAge } from "@/lib/age";
 import { popularityScore } from "@/lib/popularity";
 
-export default function ProfileHeader({ profile }: { profile: UserProfileDetail }) {
+interface ProfileHeaderProps {
+    profile: {
+        first_name: string;
+        birth_date: string | null;
+        fame_rating: number;
+    };
+}
+
+export default function ProfileHeader({ profile }: ProfileHeaderProps) {
     const age = profile.birth_date ? calculateAge(profile.birth_date) : null;
 
     return (

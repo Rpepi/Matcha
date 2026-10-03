@@ -33,7 +33,12 @@ export default function UserPage() {
 
     return (
         <div className="mx-auto flex max-w-6xl flex-col gap-10 p-6 lg:min-h-dvh lg:flex-row lg:items-center lg:gap-16 lg:p-16">
-            <ProfilePhotoGallery profile={profile} />
+            <ProfilePhotoGallery
+                profile={profile}
+                photoUrl={(photo) => `/api/users/${profile.id}/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`}
+                backTo="/browse"
+                backLabel="Back to Browse"
+            />
 
             <div className="flex min-w-0 flex-1 flex-col gap-10">
                 <div className="flex flex-col gap-5">
