@@ -26,6 +26,10 @@ EXPECTED = {
     ("POST",   "/users/{target_id}/report"):  ("report",          5, 3600,  5, "account"),
     ("POST",   "/profile/photos"):            ("upload-photo",    5, 3600,  5, "account"),
     ("PUT",    "/profile/me"):                ("profile-update", 10, 3600, 10, "account"),
+
+    ("GET",  "/chat/conversations"):           ("conversations",  30,   60, 10, "account"),
+    ("GET",  "/chat/{target_id}/messages"):    ("get_messages",   60,   60, 20, "account"),
+    ("POST", "/chat/{target_id}/seen"):        ("seen",          120,   60, 10, "account"),
 }
 
 # Called on nearly every page load by the frontend: a budget here would break

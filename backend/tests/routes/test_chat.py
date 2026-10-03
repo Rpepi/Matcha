@@ -527,3 +527,158 @@ class TestChatRateLimit:
 
         saved = [c.args[1][2] for c in mock_conn.execute.call_args_list if "INSERT INTO messages" in c.args[0]]
         assert saved == ["one", "two", "three"]
+
+
+def make_conversation_row(user_id=2, message_id=None, sender_id=None, unread=0, photo_position=1):
+    has_message = message_id is not None
+    return {
+        "id": user_id, "first_name": "Bob", "is_online": True, "last_seen": None,
+        "photo_position": photo_position,
+        "message_id": message_id, "sender_id": sender_id if has_message else None,
+        "content": "hi" if has_message else None,
+        "created_at": datetime(2026, 10, 3, 10, 12) if has_message else None,
+        "unread_count": unread,
+    }
+
+
+class TestGetConversations:
+    async def test_returns_conversations_in_contract_shape(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        cursor = AsyncMock()
+        cursor.fetchall = AsyncMock(return_value=[
+            make_conversation_row(2, message_id=88, sender_id=2, unread=2),
+            make_conversation_row(3, photo_position=None),
+        ])
+        mock_db.execute = AsyncMock(return_value=cursor)
+
+        res = await auth_client.get("/chat/conversations")
+
+        assert res.status_code == 200
+        first, second = res.json()
+        assert first == {
+            "user": {"id": 2, "first_name": "Bob", "is_online": True, "last_seen": None,
+                     "photo": "/users/2/photos/1"},
+            "last_message": {"id": 88, "sender_id": 2, "content": "hi",
+                             "created_at": "2026-10-03T10:12:00"},
+            "unread_count": 2,
+        }
+        assert second["last_message"] is None
+        assert second["user"]["photo"] is None
+        assert second["unread_count"] == 0
+
+    async def test_runs_a_single_query_for_the_session_user(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        cursor = AsyncMock()
+        cursor.fetchall = AsyncMock(return_value=[])
+        mock_db.execute = AsyncMock(return_value=cursor)
+
+        await auth_client.get("/chat/conversations")
+
+        mock_db.execute.assert_awaited_once()
+        assert mock_db.execute.call_args.args[1] == {"me": 1}
+
+    async def test_no_match_returns_empty_list(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        cursor = AsyncMock()
+        cursor.fetchall = AsyncMock(return_value=[])
+        mock_db.execute = AsyncMock(return_value=cursor)
+
+        res = await auth_client.get("/chat/conversations")
+
+        assert res.status_code == 200
+        assert res.json() == []
+
+    async def test_no_cookie_returns_401(self, client, mock_db):
+        res = await client.get("/chat/conversations")
+        assert res.status_code == 401
+        mock_db.execute.assert_not_called()
+
+
+def make_message_row(message_id, sender_id=2, minute=0):
+    return {"id": message_id, "sender_id": sender_id, "content": f"m{message_id}",
+            "created_at": datetime(2026, 10, 3, 10, minute)}
+
+
+class TestGetMessages:
+    async def test_returns_page_in_websocket_shape(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        history = AsyncMock()
+        history.fetchall = AsyncMock(return_value=[make_message_row(2, 1, 1), make_message_row(1, 2, 0)])
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), history])
+
+        res = await auth_client.get("/chat/2/messages")
+
+        assert res.status_code == 200
+        assert res.json() == {
+            "messages": [
+                {"id": 2, "sender_id": 1, "content": "m2", "created_at": "2026-10-03T10:01:00"},
+                {"id": 1, "sender_id": 2, "content": "m1", "created_at": "2026-10-03T10:00:00"},
+            ],
+            "has_more": False,
+        }
+
+    async def test_extra_row_sets_has_more_and_is_dropped(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        history = AsyncMock()
+        history.fetchall = AsyncMock(return_value=[make_message_row(i) for i in (3, 2, 1)])
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), history])
+
+        res = await auth_client.get("/chat/2/messages?limit=2")
+
+        body = res.json()
+        assert body["has_more"] is True
+        assert [m["id"] for m in body["messages"]] == [3, 2]
+        assert mock_db.execute.call_args.args[1][-1] == 3  # LIMIT limit + 1
+
+    async def test_before_and_pair_are_passed_to_query(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        history = AsyncMock()
+        history.fetchall = AsyncMock(return_value=[])
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), history])
+
+        await auth_client.get("/chat/7/messages?before=50")
+
+        assert mock_db.execute.call_args.args[1] == (1, 7, 50, 50, 31)
+
+    async def test_not_a_match_is_403(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_match_cursor(liked_by_them=False))
+
+        res = await auth_client.get("/chat/2/messages")
+
+        assert res.status_code == 403
+        mock_db.execute.assert_awaited_once()  # only the match check
+
+    async def test_no_cookie_returns_401(self, client, mock_db):
+        res = await client.get("/chat/2/messages")
+        assert res.status_code == 401
+        mock_db.execute.assert_not_called()
+
+
+class TestMarkSeen:
+    async def test_marks_messages_and_commits(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        update = AsyncMock()
+        update.rowcount = 3
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), update])
+
+        res = await auth_client.post("/chat/2/seen")
+
+        assert res.status_code == 200
+        assert res.json() == {"updated": 3}
+        assert mock_db.execute.call_args.args[1] == (2, 1)  # (sender = them, receiver = me)
+        mock_db.commit.assert_awaited_once()
+
+    async def test_not_a_match_is_403_and_writes_nothing(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_match_cursor(liked_by_me=False))
+
+        res = await auth_client.post("/chat/2/seen")
+
+        assert res.status_code == 403
+        mock_db.commit.assert_not_awaited()
+
+    async def test_no_cookie_returns_401(self, client, mock_db):
+        res = await client.post("/chat/2/seen")
+        assert res.status_code == 401
+        mock_db.execute.assert_not_called()
