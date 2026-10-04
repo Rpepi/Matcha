@@ -44,7 +44,7 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
     row = await cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
-    return dict(row)
+    return row
 
 
 async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
@@ -268,7 +268,7 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
 
     cursor = await conn.execute(query, all_params)
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 @router.get("/users/{target_id}", dependencies=[Depends(valid_target_id)])
@@ -313,7 +313,7 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
         "SELECT position, path, is_profile FROM photos WHERE user_id = %s ORDER BY position",
         (target_id,)
     )
-    profile["photos"] = [dict(r) for r in await cursor.fetchall()]
+    profile["photos"] = await cursor.fetchall()
 
     cursor = await conn.execute("""
         SELECT tags.name FROM tags
