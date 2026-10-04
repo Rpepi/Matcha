@@ -5,6 +5,7 @@ import { useProfileContext } from "@/context/ProfileContext";
 import ProfilePhotoGallery from "@/components/userProfile/ProfilePhotoGallery";
 import ProfileHeader from "@/components/userProfile/ProfileHeader";
 import ProfileMeta from "@/components/userProfile/ProfileMeta";
+import ProfileActions from "@/components/userProfile/ProfileActions";
 import ProfileAbout from "@/components/userProfile/ProfileAbout";
 import ProfileInterests from "@/components/userProfile/ProfileInterests";
 
@@ -38,6 +39,7 @@ export default function UserPage() {
                 <div className="flex flex-col gap-5">
                     <ProfileHeader profile={profile} />
                     <ProfileMeta profile={profile} />
+                    <ProfileActions profile={profile} />
                 </div>
 
                 <div className="h-px bg-grey/20" />

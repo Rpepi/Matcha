@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from starlette.testclient import TestClient
 
 import os
+from app.routes.chat import CONVERSATIONS_LIMIT
 SESSION_SECRET = os.environ["SESSION_SECRET"]
 
 
@@ -575,7 +576,7 @@ class TestGetConversations:
         await auth_client.get("/chat/conversations")
 
         mock_db.execute.assert_awaited_once()
-        assert mock_db.execute.call_args.args[1] == {"me": 1}
+        assert mock_db.execute.call_args.args[1] == {"me": 1, "limit": CONVERSATIONS_LIMIT}
 
     async def test_no_match_returns_empty_list(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

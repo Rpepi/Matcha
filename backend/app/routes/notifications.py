@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, Response, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from psycopg import AsyncConnection
 from redis import Redis
@@ -13,18 +13,21 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 @router.get("/notifications/stream")
-async def notifications(request: Request, response: Response, redis=Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+async def notifications(request: Request, redis=Depends(get_redis)):
     """Stream real-time notifications to the client (Server-Sent Events).
 
     Subscribes to the Redis channel ``notif:<user_id>`` and forwards each
     published message as an SSE ``data:`` frame. The subscription is released
     when the client disconnects or the stream fails.
 
+    This handler must not depend on ``get_db``: the stream stays open for as
+    long as the page does, and a pooled connection held that long would, with
+    a handful of open tabs, exhaust the pool (max 5) and freeze every endpoint
+    that touches the database.
+
     Args:
         request: Incoming request, carrying the ``session`` cookie.
-        response: Unused.
         redis: Redis client (injected dependency).
-        conn: Unused (injected dependency).
 
     Returns:
         A ``text/event-stream`` streaming response.
