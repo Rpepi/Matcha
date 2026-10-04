@@ -18,7 +18,7 @@ export default function ProfilePage() {
     }
 
     return (
-        <div className="mx-auto flex max-w-6xl flex-col p-6 lg:min-h-dvh lg:justify-center lg:p-16">
+        <div className="mx-auto flex max-w-2xl flex-col p-6 lg:p-16">
             <div className="mb-8 flex items-center justify-between">
                 <h1 className="font-display text-3xl font-medium text-ink">My Profile</h1>
                 <Link
@@ -30,14 +30,14 @@ export default function ProfilePage() {
                 </Link>
             </div>
 
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-                <div className="flex w-full shrink-0 flex-col gap-6 rounded-3xl bg-grey/5 p-6 lg:w-[360px]">
+            <div className="flex flex-col gap-6">
+                <div className="flex flex-col gap-6 rounded-3xl bg-grey/5 p-6">
                     <ProfilePhotos photos={profile.photos} />
                     <ProfileTags tags={profile.tags} />
                     <ProfileAbout bio={profile.bio} emptyText="Empty" />
                 </div>
 
-                <div className="flex min-w-0 flex-1 flex-col gap-5 rounded-3xl bg-grey/5 p-6 ">
+                <div className="flex flex-col gap-5 rounded-3xl bg-grey/5 p-6">
                     <ProfileDetails profile={profile} />
                 </div>
             </div>
