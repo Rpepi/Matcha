@@ -44,7 +44,7 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
     row = await cursor.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
-    return dict(row)
+    return row
 
 
 async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
@@ -84,14 +84,11 @@ async def _recalculate_fame(conn: AsyncConnection, user_id: str):
             WHERE l1.liked_id = %s
             AND EXISTS (
                 SELECT 1 FROM likes l2
-                WHERE l2.liker_id = l1.liked_id AND l2.liked_id = %s
+                WHERE l2.liker_id = l1.liked_id AND l2.liked_id = l1.liker_id
             )
         )
         WHERE id = %s
-    """, (user_id, user_id, user_id, user_id))
-
-
-
+    """, (user_id, user_id, user_id))
 
 
 def _build_orientation_filter(gender: str | None, orientation: str | None) -> tuple[list[str], list]:
@@ -153,7 +150,8 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         A list of dicts with ``id``, ``first_name``, ``last_name``,
         ``gender``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
         ``is_online``, ``last_seen``, ``age``, ``distance_km``,
-        ``common_tags``, ``score`` and ``photo``.
+        ``common_tags``, ``score``, ``photo_position`` (slot of the profile
+        photo, None if there is none) and ``is_liked_by_me``.
 
     Raises:
         HTTPException: 400 if a query parameter is not an integer or is out
@@ -249,7 +247,8 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
                 {age_term}
                 - earth_distance(ll_to_earth(u.latitude, u.longitude), ll_to_earth(%s, %s)) / 1000 * 0.1
             )                                                                         AS score,
-            (SELECT path FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo
+            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = u.id)     AS is_liked_by_me
         FROM users u
         WHERE {where_clause}
         ORDER BY score DESC
@@ -262,13 +261,14 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         user_id,           # common_tags display
         user_id,           # common_tags in score
         my_lat, my_lon,   # distance in score
+        user_id,           # is_liked_by_me
         *where_params,
         page * 20,
     ]
 
     cursor = await conn.execute(query, all_params)
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 @router.get("/users/{target_id}", dependencies=[Depends(valid_target_id)])
@@ -313,7 +313,7 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
         "SELECT position, path, is_profile FROM photos WHERE user_id = %s ORDER BY position",
         (target_id,)
     )
-    profile["photos"] = [dict(r) for r in await cursor.fetchall()]
+    profile["photos"] = await cursor.fetchall()
 
     cursor = await conn.execute("""
         SELECT tags.name FROM tags
@@ -397,7 +397,11 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
     if not os.path.isfile(photo["path"]):
         raise HTTPException(status_code=404, detail="photo file missing")
 
-    return FileResponse(photo["path"], media_type="image/jpeg")
+    # Short explicit lifetime: without a Cache-Control header the browser guesses one from
+    # Last-Modified (days), so a replaced photo kept showing the old file. `private`: never
+    # kept by a shared cache. (`no-cache` would be worse here: FileResponse does not answer
+    # If-None-Match with a 304, so every display would re-download the whole image.)
+    return FileResponse(photo["path"], media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
 
 @router.post("/users/{target_id}/like", dependencies=[Depends(valid_target_id), Depends(rate_limit("like", limit=20, seconds=60, burst=5, by="account"))])
@@ -533,8 +537,8 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
     """Block a user.
 
     Records the block (blocking twice is harmless) and deletes any like
-    between the two users in both directions, which also ends a match.
-    Publishes an "unmatch" event on their chat room's Redis channel (see
+    between the two users in both directions, which also ends a match, and
+    recalculates both fame ratings in the same transaction. Publishes an "unmatch" event on their chat room's Redis channel (see
     ``routes/chat.py::publish_unmatch``), closing any open chat websocket
     between the two.
 
@@ -572,6 +576,9 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
             "DELETE FROM likes WHERE (liker_id = %s AND liked_id = %s) OR (liker_id = %s AND liked_id = %s)",
             (user_id, target_id, target_id, user_id)
         )
+        # The deleted likes counted in both fame ratings (likes received, matches).
+        await _recalculate_fame(conn, str(user_id))
+        await _recalculate_fame(conn, str(target_id))
         await conn.commit()
         await publish_unmatch(user_id, target_id, redis)
     except Exception:

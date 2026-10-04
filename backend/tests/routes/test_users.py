@@ -14,7 +14,8 @@ BROWSE_ROW = {
     "id": 2, "first_name": "Bob", "last_name": "Smith",
     "gender": "female", "bio": "hey", "birth_date": date(1997, 3, 10),
     "fame_rating": 5, "city": "Lyon", "is_online": False, "last_seen": None,
-    "age": 27, "distance_km": 400, "common_tags": 2, "score": 45.0, "photo": None,
+    "age": 27, "distance_km": 400, "common_tags": 2, "score": 45.0, "photo_position": None,
+    "is_liked_by_me": False,
 }
 
 USER_ROW = {
@@ -41,7 +42,8 @@ class TestRecalculateFame:
 
         query, params = conn.execute.call_args.args
         assert "UPDATE users SET fame_rating" in query
-        assert params == ("42", "42", "42", "42")
+        assert params == ("42", "42", "42")
+        assert query.count("%s") == len(params)
 
     async def test_query_counts_likes_and_matches(self):
         conn = AsyncMock()
@@ -52,6 +54,19 @@ class TestRecalculateFame:
         query = conn.execute.call_args.args[0]
         assert "FROM likes WHERE liked_id" in query
         assert "EXISTS" in query
+
+    async def test_a_match_is_the_reverse_of_the_received_like(self):
+        """A like received from X is a match when the user also likes X: the second
+        copy of `likes` must point back at the *liker* of the first one. Comparing it
+        to the user's own id looks for "user likes user", which never exists, so no
+        match was ever counted (checked against a real database, a mock cannot see it)."""
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value=AsyncMock())
+
+        await _recalculate_fame(conn, "1")
+
+        query = " ".join(conn.execute.call_args.args[0].split())
+        assert "l2.liker_id = l1.liked_id AND l2.liked_id = l1.liker_id" in query
 
 
 class TestOrientationFilter:
@@ -100,6 +115,33 @@ class TestBrowseUsers:
         assert "common_tags" in data[0]
         assert "score" in data[0]
         assert "email" not in data[0]
+
+    async def test_returns_photo_position_and_like_state(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=ME_ROW),
+            make_cursor(fetchall=[{**BROWSE_ROW, "photo_position": 2, "is_liked_by_me": True}]),
+        ])
+
+        res = await auth_client.get("/users")
+        assert res.status_code == 200
+        assert res.json()[0]["photo_position"] == 2
+        assert res.json()[0]["is_liked_by_me"] is True
+
+    async def test_placeholders_and_params_stay_aligned(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=ME_ROW),
+            make_cursor(fetchall=[]),
+        ])
+
+        await auth_client.get("/users")
+
+        query, params = mock_db.execute.call_args_list[1].args
+        assert query.count("%s") == len(params)
+        # SELECT order: distance (lat, lon), common_tags x2, score (lat, lon), then is_liked_by_me.
+        assert "is_liked_by_me" in query
+        assert params[:7] == [48.85, 2.35, "1", "1", 48.85, 2.35, "1"]
 
     async def test_no_location_returns_400(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -303,7 +345,9 @@ class TestGetUserPhoto:
             res = await auth_client.get("/users/2/photos/1")
 
         assert res.status_code == 200
-        mock_file_response.assert_called_once_with("/backend/uploads/2/a.jpg", media_type="image/jpeg")
+        mock_file_response.assert_called_once_with(
+            "/backend/uploads/2/a.jpg", media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"}
+        )
 
     async def test_own_id_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -476,6 +520,8 @@ class TestBlockUser:
             make_cursor(fetchone={"1": 1}),   # user exists
             make_cursor(),                    # INSERT block
             make_cursor(),                    # DELETE likes
+            make_cursor(),                    # fame of the blocker
+            make_cursor(),                    # fame of the blocked user
         ])
 
         res = await auth_client.post("/users/2/block")
@@ -484,6 +530,16 @@ class TestBlockUser:
 
         calls = [str(c.args[0]) for c in mock_db.execute.call_args_list]
         assert any("DELETE FROM likes" in q for q in calls)
+
+    async def test_block_recalculates_both_fame_ratings(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[make_cursor(fetchone={"1": 1})] + [make_cursor()] * 4)
+
+        await auth_client.post("/users/2/block")
+
+        fame_updates = [c for c in mock_db.execute.call_args_list if "UPDATE users SET fame_rating" in str(c.args[0])]
+        assert [c.args[1][-1] for c in fame_updates] == ["1", "2"]  # the blocker, then the blocked user
+        mock_db.commit.assert_awaited_once()
 
     async def test_block_self_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -499,11 +555,7 @@ class TestBlockUser:
 
     async def test_block_idempotent(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
-        mock_db.execute = AsyncMock(side_effect=[
-            make_cursor(fetchone={"1": 1}),
-            make_cursor(),
-            make_cursor(),
-        ])
+        mock_db.execute = AsyncMock(side_effect=[make_cursor(fetchone={"1": 1})] + [make_cursor()] * 4)
 
         res = await auth_client.post("/users/2/block")
         assert res.status_code == 200

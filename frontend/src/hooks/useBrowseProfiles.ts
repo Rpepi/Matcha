@@ -44,7 +44,8 @@ export function useBrowseProfiles(itemsPerScreen: number) {
                     return {
                         old: prev.new,
                         new: batch,
-                        cursor: evicted ? Math.max(0, prev.cursor - PAGE_SIZE) : prev.cursor,
+                        // Everything before the cursor shifts by the size of the page dropped (not always PAGE_SIZE once a profile was removed).
+                        cursor: evicted ? Math.max(0, prev.cursor - prev.old.length) : prev.cursor,
                     };
                 });
                 setHasMore(batch.length === PAGE_SIZE);
@@ -69,6 +70,19 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         setBuffer({ old: [], new: [], cursor: 0 });
         setHasMore(true);
         setPage(0);
+    }, []);
+
+    /** Drops a profile from the loaded pages (blocked), keeping the reader on the same spot. */
+    const removeProfile = useCallback((userId: number) => {
+        setBuffer((prev) => {
+            const index = [...prev.old, ...prev.new].findIndex((p) => p.id === userId);
+            if (index === -1) return prev;
+            return {
+                old: prev.old.filter((p) => p.id !== userId),
+                new: prev.new.filter((p) => p.id !== userId),
+                cursor: index < prev.cursor ? prev.cursor - 1 : prev.cursor,
+            };
+        });
     }, []);
 
     const loadMore = useCallback(() => {
@@ -104,5 +118,6 @@ export function useBrowseProfiles(itemsPerScreen: number) {
         atEnd,
         filters,
         applyFilters,
+        removeProfile,
     };
 }

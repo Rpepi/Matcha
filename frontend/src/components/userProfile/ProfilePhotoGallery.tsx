@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { UserProfileDetail } from "@/api/users";
-import { placeholderPhotoUrl } from "@/lib/placeholderPhoto";
+import PhotoFallback from "@/components/PhotoFallback";
 
 const buttonClasses =
     "flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-paper/90 text-ink transition hover:bg-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-matcha";
@@ -19,14 +19,18 @@ export default function ProfilePhotoGallery({ profile }: { profile: UserProfileD
     const src =
         photos.length > 0
             ? `/api/users/${profile.id}/photos/${photos[index].position}?v=${encodeURIComponent(photos[index].path)}`
-            : placeholderPhotoUrl(profile.id);
+            : null;
 
     return (
         <section
             aria-label={`Photos of ${profile.first_name}`}
             className="relative h-[55vh] max-h-[520px] w-full flex-shrink-0 overflow-hidden rounded-[32px] bg-grey/10 lg:h-auto lg:aspect-[3/4] lg:w-[42%]"
         >
-            <img src={src} alt="" className="h-full w-full object-cover" />
+            {src !== null ? (
+                <img src={src} alt="" className="h-full w-full object-cover" />
+            ) : (
+                <PhotoFallback name={profile.first_name} />
+            )}
 
             <div className="absolute inset-x-4 top-4 flex items-center gap-3">
                 <Link to="/browse" aria-label="Back to Browse" className={buttonClasses}>

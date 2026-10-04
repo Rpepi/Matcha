@@ -15,7 +15,9 @@ export interface BrowseProfile {
     distance_km: number | null;
     common_tags: number;
     score: number;
-    photo: string | null;
+    /** Slot (1-5) of the profile photo, for `/users/{id}/photos/{position}`; null when the user has none. */
+    photo_position: number | null;
+    is_liked_by_me: boolean;
 }
 
 export async function getBrowseProfiles(page: number, filters: BrowseFilters = DEFAULT_FILTERS): Promise<Response> {
