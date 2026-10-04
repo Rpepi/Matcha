@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useProfileContext } from "@/context/ProfileContext";
 import ProfilePhotos from "@/components/profile/ProfilePhotos";
 import ProfileDetails from "@/components/profile/ProfileDetails";
-import ProfileAbout from "@/components/userProfile/ProfileAbout";
+import ProfileBio from "@/components/profile/ProfileBio";
 import ProfileTags from "@/components/profile/ProfileTags";
 
 export default function ProfilePage() {
@@ -34,7 +34,7 @@ export default function ProfilePage() {
                 <div className="flex flex-col gap-6 rounded-3xl bg-grey/5 p-6">
                     <ProfilePhotos photos={profile.photos} />
                     <ProfileTags tags={profile.tags} />
-                    <ProfileAbout bio={profile.bio} emptyText="Empty" />
+                    <ProfileBio bio={profile.bio} />
                 </div>
 
                 <div className="flex flex-col gap-5 rounded-3xl bg-grey/5 p-6">
