@@ -4,7 +4,7 @@ import { useProfileContext } from "../context/ProfileContext";
 import { updateProfile, updateLocation } from "../api/profile";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
 import { updateTags } from "../api/tags";
-import { formatPlaceLabel, type NominatimResult } from "../lib/nominatim";
+import { reverseGeocode } from "../lib/nominatim";
 
 export const STEP_COUNT = 7;
 
@@ -100,16 +100,6 @@ export function useOnboarding() {
             return;
         }
         goNext();
-    }
-
-    async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
-        try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14`);
-            const data: NominatimResult = await res.json();
-            return data?.display_name ? formatPlaceLabel(data) : null;
-        } catch {
-            return null;
-        }
     }
 
     function HandleUseLocation(): Promise<string | null> {
