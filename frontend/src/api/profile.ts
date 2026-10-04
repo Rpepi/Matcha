@@ -1,4 +1,6 @@
 export async function updateProfile(fields: Partial<{
+    first_name: string;
+    last_name: string;
     gender: string;
     orientation: string;
     bio: string;
