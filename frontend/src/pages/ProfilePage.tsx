@@ -6,6 +6,7 @@ import ProfileDetails from "@/components/profile/ProfileDetails";
 import ProfileBio from "@/components/profile/ProfileBio";
 import ProfileTags from "@/components/profile/ProfileTags";
 import ProfileCity from "@/components/profile/ProfileCity";
+import ProfileBlockedUsers from "@/components/profile/ProfileBlockedUsers";
 
 export default function ProfilePage() {
     const { status, profile } = useProfileContext();
@@ -44,6 +45,10 @@ export default function ProfilePage() {
 
                 <div className="flex flex-col gap-3 rounded-3xl bg-grey/5 p-6">
                     <ProfileCity city={profile.city} />
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-3xl bg-grey/5 p-6">
+                    <ProfileBlockedUsers />
                 </div>
             </div>
         </div>
