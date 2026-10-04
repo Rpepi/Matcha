@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useEffect } from "react";
 
 
@@ -8,20 +8,27 @@ export default function VerifyPage() {
     const [error, setError] = useState('');
     const [searchParams] = useSearchParams();
     const token = searchParams.get("token");
+    const hasRequested = useRef(false);
+
 
     useEffect( () => {
         const verify = async () => {
-            const response = await fetch(`/api/auth/verify?token=${token}`, {
-                method: 'GET',
-                headers: {'Content-Type' : 'application/json'}
-        });
-        if (response.ok)
-            setInfo("Email verified! you can close this page.");
-        else
-            setError("Error verifiyng email, Try again!");
-    };
-    verify();
-    }, []);
+            if (hasRequested.current === false)
+            {
+                hasRequested.current = true
+                const response = await fetch(`/api/auth/verify?token=${token}`, {
+                    method: 'GET',
+                    headers: {'Content-Type' : 'application/json'}
+                });
+            
+                if (response.ok)
+                    setInfo("Email verified! you can close this page.");
+                else
+                    setError("Error verifiyng email, Try again!");
+            }
+        };
+        verify();
+    }, [token]);
 
     return (
         <div className="flex min-h-dvh items-center justify-center p-6 text-center">

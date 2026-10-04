@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 
 HISTORY_DEFAULT_LIMIT = 30
 HISTORY_MAX_LIMIT = 50
+CONVERSATIONS_LIMIT = 200
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
@@ -302,7 +303,7 @@ CONVERSATIONS_SQL = """
         FROM messages
         WHERE LEAST(sender_id, receiver_id) = LEAST(%(me)s, u.id)
           AND GREATEST(sender_id, receiver_id) = GREATEST(%(me)s, u.id)
-        ORDER BY created_at DESC, id DESC
+        ORDER BY id DESC
         LIMIT 1
     ) lm ON true
     CROSS JOIN LATERAL (
@@ -316,11 +317,12 @@ CONVERSATIONS_SQL = """
           WHERE (b.blocker_id = %(me)s AND b.blocked_id = u.id)
              OR (b.blocker_id = u.id AND b.blocked_id = %(me)s)
       )
-    ORDER BY lm.created_at DESC NULLS LAST, lm.id DESC NULLS LAST, u.first_name, u.id
+    ORDER BY lm.id DESC NULLS LAST, u.first_name, u.id
+    LIMIT %(limit)s
 """
 
 
-@router.get("/chat/conversations", dependencies=[Depends(rate_limit("conversations", limit=30, seconds=60, burst=10, by="account"))])
+@router.get("/chat/conversations", dependencies=[Depends(rate_limit("chat-conversations", limit=30, seconds=60, burst=10, by="account"))])
 async def get_conversations(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List the current user's conversations, most recently active first.
 
@@ -339,14 +341,15 @@ async def get_conversations(request: Request, redis: Redis = Depends(get_redis),
         ``last_seen`` and ``photo``, a ``/users/{id}/photos/{position}`` path
         or None), ``last_message`` (``id``, ``sender_id``, ``content`` and
         ``created_at``, or None when nothing was sent yet) and
-        ``unread_count``. Conversations without messages come last.
+        ``unread_count``. Conversations without messages come last. At most
+        ``CONVERSATIONS_LIMIT`` are returned.
 
     Raises:
         HTTPException: 401 if not authenticated.
     """
     user_id = int(await get_current_user_id(request.cookies.get("session"), redis))
 
-    cursor = await conn.execute(CONVERSATIONS_SQL, {"me": user_id})
+    cursor = await conn.execute(CONVERSATIONS_SQL, {"me": user_id, "limit": CONVERSATIONS_LIMIT})
     rows = await cursor.fetchall()
 
     return [
@@ -373,7 +376,7 @@ async def get_conversations(request: Request, redis: Redis = Depends(get_redis),
     ]
 
 
-@router.get("/chat/{target_id}/messages", dependencies=[Depends(valid_target_id), Depends(rate_limit("get_messages", limit=60, seconds=60, burst=20, by="account"))])
+@router.get("/chat/{target_id}/messages", dependencies=[Depends(valid_target_id), Depends(rate_limit("chat-history", limit=60, seconds=60, burst=20, by="account"))])
 async def get_messages(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return one page of the conversation with a matched user, newest first.
 
@@ -405,14 +408,15 @@ async def get_messages(target_id: int, request: Request, redis: Redis = Depends(
     if not await _is_mutual_match(conn, user_id, target_id):
         raise HTTPException(status_code=403, detail="you can only chat with a match")
 
-    # One row more than asked: if it comes back, an older page exists.
+    # Ordered and paginated on the same key (id grows with every insert, so it is also
+    # chronological). One row more than asked: if it comes back, an older page exists.
     cursor = await conn.execute("""
         SELECT id, sender_id, content, created_at
         FROM messages
         WHERE LEAST(sender_id, receiver_id) = %s
           AND GREATEST(sender_id, receiver_id) = %s
           AND (%s::int IS NULL OR id < %s::int)
-        ORDER BY created_at DESC, id DESC
+        ORDER BY id DESC
         LIMIT %s
     """, (min(user_id, target_id), max(user_id, target_id), before, before, limit + 1))
     rows = await cursor.fetchall()
@@ -423,7 +427,7 @@ async def get_messages(target_id: int, request: Request, redis: Redis = Depends(
     }
 
 
-@router.post("/chat/{target_id}/seen", dependencies=[Depends(valid_target_id), Depends(rate_limit("seen", limit=120, seconds=60, burst=10, by="account"))])
+@router.post("/chat/{target_id}/seen", dependencies=[Depends(valid_target_id), Depends(rate_limit("chat-seen", limit=120, seconds=60, burst=10, by="account"))])
 async def mark_seen(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Mark every message received from a matched user as seen.
 
