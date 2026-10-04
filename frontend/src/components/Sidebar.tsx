@@ -5,6 +5,7 @@ import { Search, Send, UserRound, LogOut, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.png";
 import { logout } from "../api/auth";
 import { useProfileContext } from "../context/ProfileContext";
+import { useChatContext } from "../context/ChatContext";
 
 const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/browse", icon: Search, label: "Browse" },
@@ -29,6 +30,7 @@ function IconTooltip({ label, children }: { label: string; children: ReactElemen
 
 export default function Sidebar() {
     const { refetch } = useProfileContext();
+    const { unreadTotal } = useChatContext();
 
     async function handleLogout() {
         await logout();
@@ -42,21 +44,34 @@ export default function Sidebar() {
             </Link>
 
             <nav className="flex items-center gap-6 md:flex-col md:gap-1">
-                {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
-                    <IconTooltip key={to} label={label}>
-                        <NavLink
-                            to={to}
-                            aria-label={label}
-                            className={({ isActive }) =>
-                                `cursor-pointer rounded-xl p-3 hover:bg-matcha/25 transition ${
-                                    isActive ? "text-ink" : "text-grey hover:text-ink "
-                                }`
-                            }
-                        >
-                            <Icon className="h-7 w-7" />
-                        </NavLink>
-                    </IconTooltip>
-                ))}
+                {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
+                    const badge = to === "/chat" ? unreadTotal : 0;
+                    const description = badge > 0 ? `${label}, ${badge} unread` : label;
+
+                    return (
+                        <IconTooltip key={to} label={description}>
+                            <NavLink
+                                to={to}
+                                aria-label={description}
+                                className={({ isActive }) =>
+                                    `relative cursor-pointer rounded-xl p-3 hover:bg-matcha/25 transition ${
+                                        isActive ? "text-ink" : "text-grey hover:text-ink "
+                                    }`
+                                }
+                            >
+                                <Icon className="h-7 w-7" />
+                                {badge > 0 && (
+                                    <span
+                                        aria-hidden="true"
+                                        className="absolute top-1 right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-pink px-1 text-[11px] leading-none font-bold text-ink ring-2 ring-paper"
+                                    >
+                                        {badge > 99 ? "99+" : badge}
+                                    </span>
+                                )}
+                            </NavLink>
+                        </IconTooltip>
+                    );
+                })}
             </nav>
 
             <div className="hidden md:block">

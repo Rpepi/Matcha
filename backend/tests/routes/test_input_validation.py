@@ -427,7 +427,21 @@ class TestBrowseInput:
         mock_db.execute.assert_not_called()
 
 
+class TestChatHistoryInput:
+    @pytest.mark.parametrize("query", [
+        "before=0", "before=-1", "before=2147483648", "before=99999999999999999999",
+        "before=1e3", "before=%00", "before=%20", "before=%D9%A3", "before=" + "9" * 5000,
+        "limit=0", "limit=-1", "limit=51", "limit=99999999999999999999", "limit=abc", "limit=%2B1",
+    ])
+    async def test_bad_query_param_is_400_and_never_hits_db(self, authed, mock_db, query):
+        res = await authed.get(f"/chat/2/messages?{query}")
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
+
+
 TARGET_ROUTES = [
+    ("GET", "/chat/{id}/messages"),
+    ("POST", "/chat/{id}/seen"),
     ("GET", "/users/{id}"),
     ("GET", "/users/{id}/photos/1"),
     ("POST", "/users/{id}/like"),

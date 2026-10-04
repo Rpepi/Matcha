@@ -67,9 +67,9 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     )
     photo_rows = await cursor_photos.fetchall()
 
-    profile = dict(row)
+    profile = row
     profile["tags"] = [t["name"] for t in tag_rows]
-    profile["photos"] = [dict(p) for p in photo_rows]
+    profile["photos"] = photo_rows
     return profile
 
 
@@ -437,7 +437,7 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
         (user_id,)
     )
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 @router.get("/profile/me/likes")
@@ -462,7 +462,42 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
         (user_id,)
     )
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return rows
+
+
+@router.get("/profile/me/blocked")
+async def get_blocked_users(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """List the users the current user has blocked, most recent first.
+
+    The name comes from here because the front cannot look it up itself:
+    ``GET /users/{id}`` answers 404 for anyone with whom a block exists.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        A list of dicts with ``id`` and ``first_name`` of the blocked user and
+        ``created_at``, when the block was made. Empty if nobody is blocked.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 500 if the query fails.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+    try:
+        cursor = await conn.execute("""
+            SELECT u.id, u.first_name, b.created_at
+            FROM blocks b
+            JOIN users u ON u.id = b.blocked_id
+            WHERE b.blocker_id = %s
+            ORDER BY b.created_at DESC
+        """, (user_id,))
+        rows = await cursor.fetchall()
+        return rows
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail="failed to query blocked users")  
 
 
 @router.get("/profile/photos")
@@ -488,7 +523,7 @@ async def get_photos(request: Request, redis: Redis = Depends(get_redis), conn: 
         (user_id,)
     )
     rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return rows
 
 
 @router.post("/profile/photos", dependencies=[Depends(rate_limit("upload-photo", limit=5, seconds=3600, by="account"))])

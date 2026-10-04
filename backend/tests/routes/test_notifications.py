@@ -65,6 +65,34 @@ def notif_app(mock_redis, mock_db):
     return app
 
 
+# ── the SSE stream and the connection pool ───────────────────────────────────
+
+class TestStreamDoesNotHoldDatabaseConnection:
+    def test_stream_route_has_no_get_db_dependency(self, notif_app):
+        """The stream stays open as long as the page does. If it borrowed a pooled
+        connection (max 5) a few open tabs would freeze every endpoint that
+        touches the database."""
+        from app.db.dependencies import get_db
+
+        def calls(dependant):
+            for dep in dependant.dependencies:
+                yield dep.call
+                yield from calls(dep)
+
+        def find_route(app, path):
+            # include_router wraps the router on this FastAPI version (see test_rate_limits.flatten)
+            for route in app.routes:
+                if getattr(route, "path", None) == path:
+                    return route
+                for inner in getattr(getattr(route, "original_router", None), "routes", []):
+                    if inner.path == path:
+                        return inner
+
+        route = find_route(notif_app, "/notifications/stream")
+        assert route is not None
+        assert get_db not in set(calls(route.dependant))
+
+
 # ── insert_notification ──────────────────────────────────────────────────────
 
 class TestInsertNotification:
