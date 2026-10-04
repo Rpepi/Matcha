@@ -154,8 +154,6 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     )
                 }
             />
-            <Row label="City" value={profile.city} />
-
             {isEditing && (
                 <div className="flex gap-3 pt-4">
                     <Button onClick={save} disabled={isSaving} className="w-auto px-4 py-2 text-sm">

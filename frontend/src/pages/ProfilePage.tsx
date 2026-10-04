@@ -5,6 +5,7 @@ import ProfilePhotos from "@/components/profile/ProfilePhotos";
 import ProfileDetails from "@/components/profile/ProfileDetails";
 import ProfileBio from "@/components/profile/ProfileBio";
 import ProfileTags from "@/components/profile/ProfileTags";
+import ProfileCity from "@/components/profile/ProfileCity";
 
 export default function ProfilePage() {
     const { status, profile } = useProfileContext();
@@ -39,6 +40,10 @@ export default function ProfilePage() {
 
                 <div className="flex flex-col gap-5 rounded-3xl bg-grey/5 p-6">
                     <ProfileDetails profile={profile} />
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-3xl bg-grey/5 p-6">
+                    <ProfileCity city={profile.city} />
                 </div>
             </div>
         </div>
