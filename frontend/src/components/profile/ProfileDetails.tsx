@@ -95,7 +95,6 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     ),
                 }}
             />
-            <Row label="Email" value={profile.email} />
             <Row
                 label="Gender"
                 value={profile.gender ? capitalize(profile.gender) : null}
