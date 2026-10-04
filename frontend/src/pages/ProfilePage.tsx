@@ -5,8 +5,10 @@ import ProfilePhotos from "@/components/profile/ProfilePhotos";
 import ProfileDetails from "@/components/profile/ProfileDetails";
 import ProfileBio from "@/components/profile/ProfileBio";
 import ProfileTags from "@/components/profile/ProfileTags";
+import ProfileEmail from "@/components/profile/ProfileEmail";
 import ProfileCity from "@/components/profile/ProfileCity";
 import ProfileBlockedUsers from "@/components/profile/ProfileBlockedUsers";
+import ProfileSection from "@/components/profile/ProfileSection";
 
 export default function ProfilePage() {
     const { status, profile } = useProfileContext();
@@ -33,23 +35,27 @@ export default function ProfilePage() {
             </div>
 
             <div className="flex flex-col gap-6">
-                <div className="flex flex-col gap-6 rounded-3xl bg-grey/5 p-6">
+                <ProfileSection className="flex flex-col gap-6">
                     <ProfilePhotos photos={profile.photos} />
                     <ProfileTags tags={profile.tags} />
                     <ProfileBio bio={profile.bio} />
-                </div>
+                </ProfileSection>
 
-                <div className="flex flex-col gap-5 rounded-3xl bg-grey/5 p-6">
+                <ProfileSection>
                     <ProfileDetails profile={profile} />
-                </div>
+                </ProfileSection>
 
-                <div className="flex flex-col gap-3 rounded-3xl bg-grey/5 p-6">
+                <ProfileSection>
+                    <ProfileEmail email={profile.email} />
+                </ProfileSection>
+
+                <ProfileSection>
                     <ProfileCity city={profile.city} />
-                </div>
+                </ProfileSection>
 
-                <div className="flex flex-col gap-3 rounded-3xl bg-grey/5 p-6">
+                <ProfileSection>
                     <ProfileBlockedUsers />
-                </div>
+                </ProfileSection>
             </div>
         </div>
     );
