@@ -1,13 +1,10 @@
 import type { ReactNode } from "react";
 import type { Profile } from "@/context/ProfileContext";
 import { useProfileDetails } from "@/hooks/useProfileDetails";
-import { Button } from "@/components/FormControls";
+import { Button, fieldClasses } from "@/components/FormControls";
 
 const GENDERS = ["male", "female", "other"];
 const ORIENTATIONS = ["hetero", "homo", "bi"];
-
-const inputClasses =
-    "w-full rounded-lg border border-grey/30 bg-paper px-2.5 py-1 text-right text-sm text-ink outline-none transition focus:ring-2 focus:ring-grey/30";
 
 function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
@@ -77,7 +74,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     value: profile.first_name,
                     input: isEditing && (
                         <input
-                            className={inputClasses}
+                            className={fieldClasses}
                             value={fields.first_name}
                             onChange={(e) => setField("first_name", e.target.value)}
                         />
@@ -88,7 +85,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     value: profile.last_name,
                     input: isEditing && (
                         <input
-                            className={inputClasses}
+                            className={fieldClasses}
                             value={fields.last_name}
                             onChange={(e) => setField("last_name", e.target.value)}
                         />
@@ -101,7 +98,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                 input={
                     isEditing && (
                         <select
-                            className={inputClasses}
+                            className={fieldClasses}
                             value={fields.gender}
                             onChange={(e) => setField("gender", e.target.value)}
                         >
@@ -123,7 +120,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                 input={
                     isEditing && (
                         <select
-                            className={inputClasses}
+                            className={fieldClasses}
                             value={fields.orientation}
                             onChange={(e) => setField("orientation", e.target.value)}
                         >
@@ -146,7 +143,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     isEditing && (
                         <input
                             type="date"
-                            className={inputClasses}
+                            className={fieldClasses}
                             value={fields.birth_date}
                             onChange={(e) => setField("birth_date", e.target.value)}
                         />

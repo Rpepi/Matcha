@@ -1,5 +1,5 @@
 import { useProfileBio } from "@/hooks/useProfileBio";
-import { Button } from "@/components/FormControls";
+import { Button, fieldClasses } from "@/components/FormControls";
 
 export default function ProfileBio({ bio }: { bio: string | null }) {
     const { isEditing, isSaving, draft, setDraft, startEditing, cancelEditing, save } = useProfileBio(bio);
@@ -26,7 +26,7 @@ export default function ProfileBio({ bio }: { bio: string | null }) {
                         onChange={(e) => setDraft(e.target.value)}
                         rows={4}
                         placeholder="A line about you"
-                        className="w-full resize-none rounded-xl border border-grey/30 bg-paper px-4 py-2.5 text-ink outline-none transition placeholder:text-ink/40 focus:ring-2 focus:ring-grey/30"
+                        className={`${fieldClasses} resize-none`}
                     />
                     <div className="flex gap-3">
                         <Button onClick={save} disabled={isSaving} className="w-auto px-4 py-2 text-sm">
