@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from psycopg.errors import UniqueViolation
 from fastapi.responses import Response
@@ -364,6 +365,80 @@ class TestGetMyLikes:
     async def test_no_cookie_returns_401(self, client):
         res = await client.get("/profile/me/likes")
         assert res.status_code == 401
+
+
+class TestGetBlockedUsers:
+    async def test_returns_blocked_users_with_their_names(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[
+            {"id": 3, "first_name": "Kathleen", "created_at": datetime(2026, 10, 3, 9, 13)},
+            {"id": 2, "first_name": "Danielle", "created_at": datetime(2026, 10, 2, 9, 13)},
+        ]))
+
+        res = await auth_client.get("/profile/me/blocked")
+
+        assert res.status_code == 200
+        assert res.json() == [
+            {"id": 3, "first_name": "Kathleen", "created_at": "2026-10-03T09:13:00"},
+            {"id": 2, "first_name": "Danielle", "created_at": "2026-10-02T09:13:00"},
+        ]
+
+    async def test_nobody_blocked_returns_an_empty_list(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        res = await auth_client.get("/profile/me/blocked")
+
+        assert res.status_code == 200
+        assert res.json() == []  # a list, like the other list routes: never {}
+
+    async def test_query_is_scoped_to_the_session_user_and_newest_first(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/blocked")
+
+        query, params = mock_db.execute.call_args.args
+        assert params == ("1",)
+        assert "b.blocker_id = %s" in query
+        assert "ORDER BY b.created_at DESC" in query
+
+    async def test_query_exposes_only_what_the_screen_needs(self, auth_client, mock_db, mock_redis):
+        """The name is joined in here because GET /users/{id} answers 404 for a blocked
+        user: the front has no other way to get it. Nothing else of theirs should leak."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/blocked")
+
+        query = mock_db.execute.call_args.args[0]
+        assert "SELECT *" not in query
+        assert "JOIN users u ON u.id = b.blocked_id" in query
+        for private in ("email", "password", "latitude", "longitude", "birth_date"):
+            assert private not in query
+
+    async def test_db_failure_returns_500(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=Exception("db down"))
+
+        res = await auth_client.get("/profile/me/blocked")
+
+        assert res.status_code == 500
+        assert res.json()["detail"] == "failed to query blocked users"
+
+    async def test_expired_session_returns_401(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value=None)  # cookie is signed but the session is gone
+
+        res = await auth_client.get("/profile/me/blocked")
+
+        assert res.status_code == 401
+        mock_db.execute.assert_not_called()
+
+    async def test_no_cookie_returns_401(self, client, mock_db):
+        res = await client.get("/profile/me/blocked")
+
+        assert res.status_code == 401
+        mock_db.execute.assert_not_called()
 
 
 class TestGetPhotos:
