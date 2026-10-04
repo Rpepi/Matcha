@@ -1,8 +1,6 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Profile } from "@/context/ProfileContext";
-import { useProfileContext } from "@/context/ProfileContext";
-import { useToast } from "@/context/ToastContext";
-import { updateProfile } from "@/api/profile";
+import { useProfileDetails } from "@/hooks/useProfileDetails";
 import { Button } from "@/components/FormControls";
 
 const GENDERS = ["male", "female", "other"];
@@ -55,52 +53,8 @@ function DualRow({
     );
 }
 
-interface EditableFields {
-    first_name: string;
-    last_name: string;
-    gender: string;
-    orientation: string;
-    birth_date: string;
-}
-
-function fieldsFrom(profile: Profile): EditableFields {
-    return {
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        gender: profile.gender ?? "",
-        orientation: profile.orientation ?? "",
-        birth_date: profile.birth_date ?? "",
-    };
-}
-
 export default function ProfileDetails({ profile }: { profile: Profile }) {
-    const { refetch } = useProfileContext();
-    const { showError } = useToast();
-    const [isEditing, setIsEditing] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const [fields, setFields] = useState<EditableFields>(() => fieldsFrom(profile));
-
-    function startEditing() {
-        setFields(fieldsFrom(profile));
-        setIsEditing(true);
-    }
-
-    function set<K extends keyof EditableFields>(key: K, value: EditableFields[K]) {
-        setFields((prev) => ({ ...prev, [key]: value }));
-    }
-
-    async function save() {
-        setIsSaving(true);
-        const response = await updateProfile(fields);
-        setIsSaving(false);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your profile. Please try again.");
-            return;
-        }
-        await refetch();
-        setIsEditing(false);
-    }
+    const { isEditing, isSaving, fields, startEditing, cancelEditing, setField, save } = useProfileDetails(profile);
 
     return (
         <div className="flex flex-col divide-y divide-grey/10">
@@ -125,7 +79,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                         <input
                             className={inputClasses}
                             value={fields.first_name}
-                            onChange={(e) => set("first_name", e.target.value)}
+                            onChange={(e) => setField("first_name", e.target.value)}
                         />
                     ),
                 }}
@@ -136,7 +90,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                         <input
                             className={inputClasses}
                             value={fields.last_name}
-                            onChange={(e) => set("last_name", e.target.value)}
+                            onChange={(e) => setField("last_name", e.target.value)}
                         />
                     ),
                 }}
@@ -150,7 +104,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                         <select
                             className={inputClasses}
                             value={fields.gender}
-                            onChange={(e) => set("gender", e.target.value)}
+                            onChange={(e) => setField("gender", e.target.value)}
                         >
                             <option value="" disabled>
                                 Choose one
@@ -172,7 +126,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                         <select
                             className={inputClasses}
                             value={fields.orientation}
-                            onChange={(e) => set("orientation", e.target.value)}
+                            onChange={(e) => setField("orientation", e.target.value)}
                         >
                             <option value="" disabled>
                                 Choose one
@@ -195,7 +149,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                             type="date"
                             className={inputClasses}
                             value={fields.birth_date}
-                            onChange={(e) => set("birth_date", e.target.value)}
+                            onChange={(e) => setField("birth_date", e.target.value)}
                         />
                     )
                 }
@@ -209,7 +163,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     </Button>
                     <button
                         type="button"
-                        onClick={() => setIsEditing(false)}
+                        onClick={cancelEditing}
                         disabled={isSaving}
                         className="cursor-pointer rounded-xl px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-grey/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >

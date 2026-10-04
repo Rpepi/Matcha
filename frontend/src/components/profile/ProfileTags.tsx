@@ -1,51 +1,9 @@
-import { useState } from "react";
 import { Menu } from "@base-ui/react/menu";
 import { Loader2, Plus, X } from "lucide-react";
-import { useProfileContext } from "@/context/ProfileContext";
-import { useToast } from "@/context/ToastContext";
-import { getAvailableTags, updateTags } from "@/api/tags";
-
-const MAX_TAGS = 5;
+import { useProfileTags, MAX_TAGS } from "@/hooks/useProfileTags";
 
 export default function ProfileTags({ tags }: { tags: string[] }) {
-    const { refetch } = useProfileContext();
-    const { showError } = useToast();
-    const [availableTags, setAvailableTags] = useState<string[]>([]);
-    const [isLoadingTags, setIsLoadingTags] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-
-    async function save(nextTags: string[]) {
-        setIsSaving(true);
-        const response = await updateTags(nextTags);
-        setIsSaving(false);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your interests. Please try again.");
-            return;
-        }
-        await refetch();
-    }
-
-    function removeTag(tag: string) {
-        void save(tags.filter((t) => t !== tag));
-    }
-
-    function addTag(tag: string) {
-        void save([...tags, tag]);
-    }
-
-    function loadAvailableTags() {
-        setIsLoadingTags(true);
-        getAvailableTags()
-            .then(async (res) => {
-                if (!res.ok) return;
-                const data = await res.json();
-                if (Array.isArray(data.tags)) setAvailableTags(data.tags);
-            })
-            .finally(() => setIsLoadingTags(false));
-    }
-
-    const addableTags = availableTags.filter((tag) => !tags.includes(tag));
+    const { isSaving, isLoadingTags, addableTags, loadAvailableTags, addTag, removeTag } = useProfileTags(tags);
 
     return (
         <div className="flex flex-col gap-3">

@@ -1,33 +1,8 @@
-import { useState } from "react";
-import { useProfileContext } from "@/context/ProfileContext";
-import { useToast } from "@/context/ToastContext";
-import { updateProfile } from "@/api/profile";
+import { useProfileBio } from "@/hooks/useProfileBio";
 import { Button } from "@/components/FormControls";
 
 export default function ProfileBio({ bio }: { bio: string | null }) {
-    const { refetch } = useProfileContext();
-    const { showError } = useToast();
-    const [isEditing, setIsEditing] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const [draft, setDraft] = useState(bio ?? "");
-
-    function startEditing() {
-        setDraft(bio ?? "");
-        setIsEditing(true);
-    }
-
-    async function save() {
-        setIsSaving(true);
-        const response = await updateProfile({ bio: draft });
-        setIsSaving(false);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your bio. Please try again.");
-            return;
-        }
-        await refetch();
-        setIsEditing(false);
-    }
+    const { isEditing, isSaving, draft, setDraft, startEditing, cancelEditing, save } = useProfileBio(bio);
 
     return (
         <div className="flex flex-col gap-3">
@@ -59,7 +34,7 @@ export default function ProfileBio({ bio }: { bio: string | null }) {
                         </Button>
                         <button
                             type="button"
-                            onClick={() => setIsEditing(false)}
+                            onClick={cancelEditing}
                             disabled={isSaving}
                             className="cursor-pointer rounded-xl px-4 py-2 text-sm font-medium text-ink/70 transition hover:bg-grey/10 disabled:cursor-not-allowed disabled:opacity-60"
                         >
