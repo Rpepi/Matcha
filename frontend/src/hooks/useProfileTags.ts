@@ -15,14 +15,19 @@ export function useProfileTags(tags: string[]) {
     const save = useCallback(
         async (nextTags: string[]) => {
             setIsSaving(true);
-            const response = await updateTags(nextTags);
-            setIsSaving(false);
-            if (!response.ok) {
-                const data = await response.json().catch(() => null);
-                showError(data?.detail ?? "Could not save your interests. Please try again.");
-                return;
+            try {
+                const response = await updateTags(nextTags);
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null);
+                    showError(data?.detail ?? "Could not save your interests. Please try again.");
+                    return;
+                }
+                await refetch();
+            } catch {
+                showError("Could not save your interests. Please check your connection and try again.");
+            } finally {
+                setIsSaving(false);
             }
-            await refetch();
         },
         [refetch, showError],
     );

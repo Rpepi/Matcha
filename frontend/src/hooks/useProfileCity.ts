@@ -76,25 +76,28 @@ export function useProfileCity(city: string | null) {
     const save = useCallback(async () => {
         if (!canSave) return;
         setIsSaving(true);
+        try {
+            const cityResponse = await updateProfile({ city: pendingCity || null });
+            if (!cityResponse.ok) {
+                const data = await cityResponse.json().catch(() => null);
+                showError(data?.detail ?? "Could not save your city. Please try again.");
+                return;
+            }
 
-        const cityResponse = await updateProfile({ city: pendingCity || null });
-        if (!cityResponse.ok) {
-            const data = await cityResponse.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your city. Please try again.");
+            const locationResponse = await updateLocation(latitude as number, longitude as number);
+            if (!locationResponse.ok) {
+                const data = await locationResponse.json().catch(() => null);
+                showError(data?.detail ?? "City saved, but we could not save your location. Please try again.");
+                return;
+            }
+
+            await refetch();
+            setIsEditing(false);
+        } catch {
+            showError("Could not save your city. Please check your connection and try again.");
+        } finally {
             setIsSaving(false);
-            return;
         }
-
-        const locationResponse = await updateLocation(latitude as number, longitude as number);
-        setIsSaving(false);
-        if (!locationResponse.ok) {
-            const data = await locationResponse.json().catch(() => null);
-            showError(data?.detail ?? "City saved, but we could not save your location. Please try again.");
-            return;
-        }
-
-        await refetch();
-        setIsEditing(false);
     }, [canSave, pendingCity, latitude, longitude, refetch, showError]);
 
     return { isEditing, isSaving, canSave, startEditing, cancelEditing, selectLocation, clearLocation, useMyLocation, save };

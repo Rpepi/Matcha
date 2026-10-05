@@ -6,16 +6,21 @@ export function useProfileBlockedUsers() {
     const { showError } = useToast();
     const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
     const [unblockingId, setUnblockingId] = useState<number | null>(null);
 
     useEffect(() => {
         getBlockedUsers()
             .then(async (res) => {
-                if (!res.ok) return;
+                if (!res.ok) {
+                    setLoadError(true);
+                    return;
+                }
                 const data = await res.json();
                 if (Array.isArray(data)) setBlockedUsers(data);
             })
+            .catch(() => setLoadError(true))
             .finally(() => setIsLoading(false));
     }, []);
 
@@ -24,17 +29,22 @@ export function useProfileBlockedUsers() {
     const unblock = useCallback(
         async (id: number) => {
             setUnblockingId(id);
-            const response = await unblockUser(id);
-            setUnblockingId(null);
-            if (!response.ok) {
-                const data = await response.json().catch(() => null);
-                showError(data?.detail ?? "Could not unblock this user. Please try again.");
-                return;
+            try {
+                const response = await unblockUser(id);
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null);
+                    showError(data?.detail ?? "Could not unblock this user. Please try again.");
+                    return;
+                }
+                setBlockedUsers((prev) => prev.filter((u) => u.id !== id));
+            } catch {
+                showError("Could not unblock this user. Please check your connection and try again.");
+            } finally {
+                setUnblockingId(null);
             }
-            setBlockedUsers((prev) => prev.filter((u) => u.id !== id));
         },
         [showError],
     );
 
-    return { blockedUsers, isLoading, isExpanded, toggleExpanded, unblockingId, unblock };
+    return { blockedUsers, isLoading, loadError, isExpanded, toggleExpanded, unblockingId, unblock };
 }
