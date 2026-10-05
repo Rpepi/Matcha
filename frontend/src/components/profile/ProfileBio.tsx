@@ -1,6 +1,8 @@
 import { useProfileBio } from "@/hooks/useProfileBio";
 import { Button, fieldClasses } from "@/components/FormControls";
 
+const MAX_BIO_LENGTH = 500;
+
 export default function ProfileBio({ bio }: { bio: string | null }) {
     const { isEditing, isSaving, draft, setDraft, startEditing, cancelEditing, save } = useProfileBio(bio);
 
@@ -23,11 +25,15 @@ export default function ProfileBio({ bio }: { bio: string | null }) {
                 <div className="flex flex-col gap-3">
                     <textarea
                         value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
+                        onChange={(e) => setDraft(e.target.value.slice(0, MAX_BIO_LENGTH))}
                         rows={4}
+                        maxLength={MAX_BIO_LENGTH}
                         placeholder="A line about you"
                         className={`${fieldClasses} resize-none`}
                     />
+                    <span className="self-end text-xs text-grey/50">
+                        {draft.length}/{MAX_BIO_LENGTH}
+                    </span>
                     <div className="flex gap-3">
                         <Button onClick={save} disabled={isSaving} className="w-auto px-4 py-2 text-sm">
                             {isSaving ? "Saving..." : "Save"}

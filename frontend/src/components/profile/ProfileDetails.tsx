@@ -14,6 +14,12 @@ function formatDate(value: string): string {
     return new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 }
 
+function latestAllowedBirthDate(): string {
+    const date = new Date();
+    date.setFullYear(date.getFullYear() - 16);
+    return date.toISOString().slice(0, 10);
+}
+
 function Field({ label, value, input }: { label: string; value: string | null; input?: ReactNode }) {
     return (
         <div className="flex flex-1 items-center justify-between gap-4">
@@ -143,6 +149,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                     isEditing && (
                         <input
                             type="date"
+                            max={latestAllowedBirthDate()}
                             className={fieldClasses}
                             value={fields.birth_date}
                             onChange={(e) => setField("birth_date", e.target.value)}
