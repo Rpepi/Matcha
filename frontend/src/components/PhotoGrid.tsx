@@ -1,7 +1,9 @@
 import { useRef, type ChangeEvent } from "react";
 import { Trash2, ImageIcon } from "lucide-react";
+import { useToast } from "@/context/ToastContext";
 
 const SLOT_COUNT = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export interface PhotoGridPhoto {
     position: number;
@@ -17,12 +19,18 @@ interface PhotoGridProps {
 
 export default function PhotoGrid({ photos, isUploading = false, onUpload, onDelete }: PhotoGridProps) {
     const inputRef = useRef<HTMLInputElement>(null);
+    const { showError } = useToast();
     const editable = Boolean(onUpload);
 
     function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
-        if (file) onUpload?.(file);
         e.target.value = "";
+        if (!file) return;
+        if (file.size > MAX_FILE_SIZE) {
+            showError("Photo is too large. Max size is 5MB.");
+            return;
+        }
+        onUpload?.(file);
     }
 
     return (
@@ -31,7 +39,7 @@ export default function PhotoGrid({ photos, isUploading = false, onUpload, onDel
                 <input
                     ref={inputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png"
                     className="hidden"
                     onChange={handleFileChange}
                 />
