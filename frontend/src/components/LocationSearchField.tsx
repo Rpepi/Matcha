@@ -15,30 +15,40 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
     const [isSearching, setIsSearching] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [isLocating, setIsLocating] = useState(false);
-    const skipNextSearch = useRef(false);
+    const skipSearchFor = useRef<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (skipNextSearch.current) {
-            skipNextSearch.current = false;
+        if (skipSearchFor.current === query) {
+            skipSearchFor.current = null;
             return;
         }
         if (query.trim().length < 3) {
             setSuggestions([]);
             return;
         }
+        const controller = new AbortController();
         const timeout = setTimeout(() => {
             setIsSearching(true);
-            fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(query)}&limit=5`)
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(query)}&limit=5`, {
+                signal: controller.signal,
+            })
                 .then((res) => res.json())
                 .then((data: NominatimResult[]) => {
                     setSuggestions(data);
                     setShowSuggestions(true);
                 })
-                .catch(() => setSuggestions([]))
-                .finally(() => setIsSearching(false));
+                .catch((err) => {
+                    if (err.name !== "AbortError") setSuggestions([]);
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) setIsSearching(false);
+                });
         }, 500);
-        return () => clearTimeout(timeout);
+        return () => {
+            clearTimeout(timeout);
+            controller.abort();
+        };
     }, [query]);
 
     useEffect(() => {
@@ -53,7 +63,7 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
 
     function handleSelect(result: NominatimResult) {
         const label = formatPlaceLabel(result);
-        skipNextSearch.current = true;
+        skipSearchFor.current = label;
         setQuery(label);
         setShowSuggestions(false);
         setSuggestions([]);
@@ -64,7 +74,7 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
         setIsLocating(true);
         const cityName = await onUseLocation();
         if (cityName) {
-            skipNextSearch.current = true;
+            skipSearchFor.current = cityName;
             setQuery(cityName);
             setShowSuggestions(false);
         }
