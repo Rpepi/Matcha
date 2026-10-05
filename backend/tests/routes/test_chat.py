@@ -200,7 +200,7 @@ class TestChatWebSocket:
     def test_authenticated_connect_and_clean_disconnect(self, chat_app, mock_redis):
         mock_pool, _ = make_pool_mock()
 
-        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
              patch("app.db.pool.pool", mock_pool):
             with TestClient(chat_app) as tc:
                 with tc.websocket_connect(
@@ -224,7 +224,7 @@ class TestChatWebSocket:
 
         mock_pool, _ = make_pool_mock()
 
-        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
             patch("app.db.pool.pool", mock_pool), \
             patch("app.routes.chat.manager.connect", side_effect=spy_connect):
             with TestClient(chat_app) as tc:
@@ -245,7 +245,7 @@ class TestChatWebSocket:
         mock_conn.execute = AsyncMock(return_value=make_match_cursor(liked_by_me=True, liked_by_them=False))
         mock_pool, _ = make_pool_mock(mock_conn)
 
-        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
              patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.manager.connect", new=AsyncMock()) as mock_connect:
             with TestClient(chat_app) as tc:
@@ -277,7 +277,7 @@ class TestChatWebSocket:
         mock_conn.execute = AsyncMock(side_effect=[make_match_cursor(), error_cursor])
         mock_pool, _ = make_pool_mock(mock_conn)
 
-        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
              patch("app.db.pool.pool", mock_pool), \
              patch("app.routes.chat.logger") as mock_logger:
             with TestClient(chat_app) as tc:
@@ -388,7 +388,7 @@ def open_chat(chat_app, mock_redis, mock_conn=None):
     pubsub.aclose = AsyncMock(side_effect=lambda: cleaned_up.set())
     mock_redis.pubsub = MagicMock(return_value=pubsub)
 
-    with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value="1")), \
+    with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
          patch("app.db.pool.pool", mock_pool):
         with TestClient(chat_app) as tc:
             with tc.websocket_connect("/chat/2", headers=WS_HEADERS) as ws:
@@ -661,14 +661,30 @@ class TestMarkSeen:
         mock_redis.get = AsyncMock(return_value="1")
         update = AsyncMock()
         update.rowcount = 3
-        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), update])
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), update, AsyncMock()])
 
         res = await auth_client.post("/chat/2/seen")
 
         assert res.status_code == 200
         assert res.json() == {"updated": 3}
-        assert mock_db.execute.call_args.args[1] == (2, 1)  # (sender = them, receiver = me)
+        assert mock_db.execute.call_args_list[1].args[1] == (2, 1)  # (sender = them, receiver = me)
         mock_db.commit.assert_awaited_once()
+
+    async def test_also_marks_the_message_notifications_from_that_user_as_seen(self, auth_client, mock_db, mock_redis):
+        """Otherwise the bell keeps announcing "X sent you a message" for messages just read."""
+        mock_redis.get = AsyncMock(return_value="1")
+        update = AsyncMock()
+        update.rowcount = 2
+        mock_db.execute = AsyncMock(side_effect=[make_match_cursor(), update, AsyncMock()])
+
+        res = await auth_client.post("/chat/2/seen")
+
+        assert res.json() == {"updated": 2}  # still the number of messages, not notifications
+        query, params = mock_db.execute.call_args_list[2].args
+        assert "UPDATE notifications SET seen = true" in query
+        assert "type = 'message'" in query
+        assert params == (1, 2)  # (me, the sender)
+        assert [c[0] for c in mock_db.mock_calls if c[0] in ("execute", "commit")] == ["execute", "execute", "execute", "commit"]
 
     async def test_not_a_match_is_403_and_writes_nothing(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

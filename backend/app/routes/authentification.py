@@ -365,3 +365,28 @@ async def verify_auth(request: Request, redis: redis.Redis = Depends(get_redis))
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     return {"id": user_id }
+
+
+@router.get("/auth/session")
+async def session_status(request: Request, redis: redis.Redis = Depends(get_redis)):
+    """Tell whether the request carries a valid session, without ever answering 401.
+
+    The frontend asks "am I signed in?" on every page load, signed in or not.
+    ``GET /auth/me`` answers a visitor with a 401, which is correct but which the
+    browser prints as a red error in the console each time. A visitor is not an
+    error here, it is a normal answer, so this route says so with a 200.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+
+    Returns:
+        ``{"authenticated": true}`` when the session cookie is valid and the
+        session is known, ``{"authenticated": false}`` otherwise (no cookie,
+        tampered cookie, expired or unknown session).
+    """
+    try:
+        await get_current_user_id(request.cookies.get("session"), redis)
+    except HTTPException:
+        return {"authenticated": False}
+    return {"authenticated": True}

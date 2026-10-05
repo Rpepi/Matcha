@@ -4,6 +4,7 @@ import { Loader2, MessageCircle } from "lucide-react";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 import { useChatContext } from "@/context/ChatContext";
+import { useNotificationContext } from "@/context/NotificationContext";
 import ChatThread from "@/components/chat/ChatThread";
 import ConversationList from "@/components/chat/ConversationList";
 import type { ChatMessage } from "@/api/chat";
@@ -23,6 +24,7 @@ export default function ChatPage() {
     const { profile } = useProfileContext();
     const { showNotice } = useToast();
     const { conversations, isLoading, error, reload, applyMessage, clearUnread, setActiveChatId } = useChatContext();
+    const { refreshUnreadCount } = useNotificationContext();
     const [isFresh, setIsFresh] = useState(false);
 
     const myId = profile?.id ?? 0;
@@ -66,7 +68,9 @@ export default function ChatPage() {
 
     const handleSeen = useCallback(() => {
         if (activeId !== null) clearUnread(activeId);
-    }, [activeId, clearUnread]);
+        // The server also marked that conversation's "message" notification as read.
+        void refreshUnreadCount();
+    }, [activeId, clearUnread, refreshUnreadCount]);
 
     const handleBlocked = useCallback(() => {
         navigate("/chat", { replace: true });

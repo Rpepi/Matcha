@@ -23,6 +23,21 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+
+# The visitors and likes lists show at most this many people, newest first.
+RECEIVED_LIST_LIMIT = 50
+
+# Visitors blocked in either direction are left out of the visits list. Likes need no
+# such filter: blocking deletes the likes between the two users. Uses the ``v`` alias.
+NOT_A_BLOCKED_VISITOR = """
+    NOT EXISTS (
+        SELECT 1 FROM blocks b
+        WHERE (b.blocker_id = v.visited_id AND b.blocked_id = v.visitor_id)
+            OR (b.blocker_id = v.visitor_id AND b.blocked_id = v.visited_id)
+    )
+"""
+
+
 @router.get("/profile/me")
 async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return the current user's own profile.
@@ -73,7 +88,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     return profile
 
 
-@router.put("/profile/me", dependencies=[Depends(rate_limit("profile-update", limit=10, seconds=3600, by="account"))])
+@router.put("/profile/me", dependencies=[Depends(rate_limit("profile-update", limit=100, seconds=3600, by="account"))])
 async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Update the current user's profile and/or tags.
 
@@ -326,7 +341,7 @@ async def _validate_tags(conn: AsyncConnection, tags) -> list[str]:
     return normalized
 
 
-async def _replace_tags(conn: AsyncConnection, user_id: str, tags: list[str]):
+async def _replace_tags(conn: AsyncConnection, user_id: int, tags: list[str]):
     """Replace all of a user's tags with the given ones. Does not commit.
 
     Deletes the user's ``user_tags`` rows, then inserts one per name. The
@@ -420,6 +435,10 @@ async def delete_tag(name: str, request: Request, redis: Redis = Depends(get_red
 async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List the visits received on the current user's profile.
 
+    Newest first, at most ``RECEIVED_LIST_LIMIT``, and without visitors blocked
+    in either direction. A visit is only refreshed after 15 days, so
+    ``created_at`` is the first visit (or the first one after 15 days).
+
     Args:
         request: Incoming request, carrying the ``session`` cookie.
         redis: Redis client (injected dependency).
@@ -436,12 +455,15 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    cursor = await conn.execute("""
+    cursor = await conn.execute(f"""
         SELECT v.id, v.visitor_id, v.created_at, u.first_name,
             (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
         FROM visits v
         JOIN users u ON u.id = v.visitor_id
         WHERE v.visited_id = %s
+            AND {NOT_A_BLOCKED_VISITOR}
+        ORDER BY v.created_at DESC, v.id DESC
+        LIMIT {RECEIVED_LIST_LIMIT}
     """, (user_id,))
     rows = await cursor.fetchall()
     return rows
@@ -450,6 +472,9 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 @router.get("/profile/me/likes")
 async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """List the likes received by the current user.
+
+    Newest first, at most ``RECEIVED_LIST_LIMIT``. Blocked users never show up:
+    blocking deletes the likes between the two users.
 
     Args:
         request: Incoming request, carrying the ``session`` cookie.
@@ -466,12 +491,14 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    cursor = await conn.execute("""
+    cursor = await conn.execute(f"""
         SELECT l.id, l.liker_id, l.created_at, u.first_name,
             (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
         FROM likes l
         JOIN users u ON u.id = l.liker_id
         WHERE l.liked_id = %s
+        ORDER BY l.created_at DESC, l.id DESC
+        LIMIT {RECEIVED_LIST_LIMIT}
     """, (user_id,))
     rows = await cursor.fetchall()
     return rows

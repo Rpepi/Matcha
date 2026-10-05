@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useProfileContext } from "@/context/ProfileContext";
-import { useChatNotifications } from "@/hooks/useChatNotifications";
+import { useNotificationStream } from "@/hooks/useNotificationStream";
 import { useConversations } from "@/hooks/useConversations";
 
 const REFRESH_DEBOUNCE_MS = 400;
+
+const CHAT_RELEVANT = new Set(["message", "match", "unlike"]);
+
 
 type ConversationsState = ReturnType<typeof useConversations>;
 
@@ -40,8 +43,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, [reload]);
     useEffect(() => () => window.clearTimeout(refreshTimer.current), []);
 
-    useChatNotifications(
+    useNotificationStream(
         enabled,
+        CHAT_RELEVANT,
         (type, fromUserId) => {
             // The open conversation already gets its messages through its own socket.
             if (type === "message" && fromUserId === activeChatId.current) return;

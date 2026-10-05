@@ -37,6 +37,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
     const refetch = useCallback(async () => {
         try {
+            // A visitor is a normal case, not an error: /profile/me would answer them with a 401,
+            // which the browser prints in red in the console on every page. This one answers 200.
+            const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
+            const session = sessionRes.ok ? await sessionRes.json() : null;
+            if (!session?.authenticated) {
+                setProfile(null);
+                setStatus('guest');
+                return;
+            }
+
             const res = await fetch('/api/profile/me', { credentials: 'include' });
             if (!res.ok) {
                 setProfile(null);

@@ -38,18 +38,18 @@ class TestRecalculateFame:
         conn = AsyncMock()
         conn.execute = AsyncMock(return_value=AsyncMock())
 
-        await _recalculate_fame(conn, "42")
+        await _recalculate_fame(conn, 42)
 
         query, params = conn.execute.call_args.args
         assert "UPDATE users SET fame_rating" in query
-        assert params == ("42", "42", "42")
+        assert params == (42, 42, 42)
         assert query.count("%s") == len(params)
 
     async def test_query_counts_likes_and_matches(self):
         conn = AsyncMock()
         conn.execute = AsyncMock(return_value=AsyncMock())
 
-        await _recalculate_fame(conn, "1")
+        await _recalculate_fame(conn, 1)
 
         query = conn.execute.call_args.args[0]
         assert "FROM likes WHERE liked_id" in query
@@ -63,7 +63,7 @@ class TestRecalculateFame:
         conn = AsyncMock()
         conn.execute = AsyncMock(return_value=AsyncMock())
 
-        await _recalculate_fame(conn, "1")
+        await _recalculate_fame(conn, 1)
 
         query = " ".join(conn.execute.call_args.args[0].split())
         assert "l2.liker_id = l1.liked_id AND l2.liked_id = l1.liker_id" in query
@@ -141,7 +141,7 @@ class TestBrowseUsers:
         assert query.count("%s") == len(params)
         # SELECT order: distance (lat, lon), common_tags x2, score (lat, lon), then is_liked_by_me.
         assert "is_liked_by_me" in query
-        assert params[:7] == [48.85, 2.35, "1", "1", 48.85, 2.35, "1"]
+        assert params[:7] == [48.85, 2.35, 1, 1, 48.85, 2.35, 1]
 
     async def test_no_location_returns_400(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -538,7 +538,7 @@ class TestBlockUser:
         await auth_client.post("/users/2/block")
 
         fame_updates = [c for c in mock_db.execute.call_args_list if "UPDATE users SET fame_rating" in str(c.args[0])]
-        assert [c.args[1][-1] for c in fame_updates] == ["1", "2"]  # the blocker, then the blocked user
+        assert [c.args[1][-1] for c in fame_updates] == [1, 2]  # the blocker, then the blocked user
         mock_db.commit.assert_awaited_once()
 
     async def test_block_self_returns_400(self, auth_client, mock_redis):
