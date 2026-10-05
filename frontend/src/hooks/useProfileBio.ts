@@ -19,15 +19,20 @@ export function useProfileBio(bio: string | null) {
 
     const save = useCallback(async () => {
         setIsSaving(true);
-        const response = await updateProfile({ bio: draft });
-        setIsSaving(false);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your bio. Please try again.");
-            return;
+        try {
+            const response = await updateProfile({ bio: draft });
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                showError(data?.detail ?? "Could not save your bio. Please try again.");
+                return;
+            }
+            await refetch();
+            setIsEditing(false);
+        } catch {
+            showError("Could not save your bio. Please check your connection and try again.");
+        } finally {
+            setIsSaving(false);
         }
-        await refetch();
-        setIsEditing(false);
     }, [draft, refetch, showError]);
 
     return { isEditing, isSaving, draft, setDraft, startEditing, cancelEditing, save };

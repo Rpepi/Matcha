@@ -42,15 +42,20 @@ export function useProfileDetails(profile: Profile) {
 
     const save = useCallback(async () => {
         setIsSaving(true);
-        const response = await updateProfile(fields);
-        setIsSaving(false);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? "Could not save your profile. Please try again.");
-            return;
+        try {
+            const response = await updateProfile(fields);
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                showError(data?.detail ?? "Could not save your profile. Please try again.");
+                return;
+            }
+            await refetch();
+            setIsEditing(false);
+        } catch {
+            showError("Could not save your profile. Please check your connection and try again.");
+        } finally {
+            setIsSaving(false);
         }
-        await refetch();
-        setIsEditing(false);
     }, [fields, refetch, showError]);
 
     return { isEditing, isSaving, fields, startEditing, cancelEditing, setField, save };

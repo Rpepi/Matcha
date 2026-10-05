@@ -2,7 +2,7 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { useProfileBlockedUsers } from "@/hooks/useProfileBlockedUsers";
 
 export default function ProfileBlockedUsers() {
-    const { blockedUsers, isLoading, isExpanded, toggleExpanded, unblockingId, unblock } = useProfileBlockedUsers();
+    const { blockedUsers, isLoading, loadError, isExpanded, toggleExpanded, unblockingId, unblock } = useProfileBlockedUsers();
 
     return (
         <div className="flex flex-col gap-3">
@@ -10,6 +10,8 @@ export default function ProfileBlockedUsers() {
 
             {isLoading ? (
                 <Loader2 className="h-5 w-5 animate-spin text-matcha" />
+            ) : loadError ? (
+                <p className="text-sm text-pink">Could not load blocked users. Please try again.</p>
             ) : blockedUsers.length === 0 ? (
                 <p className="text-sm text-grey/50 italic">None</p>
             ) : (
