@@ -5,7 +5,6 @@ import { getAvailableTags, updateTags } from "@/api/tags";
 
 export const MAX_TAGS = 5;
 
-/** Add / remove interest tags on the current user's profile. */
 export function useProfileTags(tags: string[]) {
     const { refetch } = useProfileContext();
     const { showError } = useToast();

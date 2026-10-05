@@ -4,7 +4,6 @@ import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "@/api/photos";
 
-/** Upload / delete photos on the current user's profile. */
 export function useProfilePhotos(photos: Profile["photos"]) {
     const { refetch } = useProfileContext();
     const { showError } = useToast();
@@ -41,8 +40,6 @@ export function useProfilePhotos(photos: Profile["photos"]) {
                 return;
             }
 
-            // The backend leaves a gap at the deleted position: close it by shifting every
-            // later photo down one slot, same as onboarding's photo step does.
             const remaining = photos.filter((p) => p.position !== position).sort((a, b) => a.position - b.position);
             for (const photo of remaining) {
                 if (photo.position <= position) continue;

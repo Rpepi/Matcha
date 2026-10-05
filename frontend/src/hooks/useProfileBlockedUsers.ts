@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useToast } from "@/context/ToastContext";
 import { getBlockedUsers, unblockUser, type BlockedUser } from "@/api/block";
 
-/** List the current user's blocked accounts and let them unblock one. */
 export function useProfileBlockedUsers() {
     const { showError } = useToast();
     const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);

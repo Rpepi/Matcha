@@ -3,7 +3,6 @@ import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 import { updateProfile } from "@/api/profile";
 
-/** Edit the bio of the current user's profile. */
 export function useProfileBio(bio: string | null) {
     const { refetch } = useProfileContext();
     const { showError } = useToast();

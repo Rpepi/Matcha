@@ -10,7 +10,7 @@ export const STEP_COUNT = 7;
 
 export interface OnboardingPhoto {
     position: number;
-    url: string | null; // null for a photo restored from the server (no local file to preview)
+    url: string | null;
 }
 
 export function useOnboarding() {
