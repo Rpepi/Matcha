@@ -57,7 +57,7 @@ export default function PhotoGrid({ photos, isUploading = false, onUpload, onDel
                                     type="button"
                                     onClick={() => onDelete(photo.position)}
                                     aria-label="Remove photo"
-                                    className="absolute top-1.5 right-1.5 rounded-full bg-ink/60 p-1.5 text-paper opacity-0 transition group-hover:opacity-100 hover:bg-ink/80 focus-visible:opacity-100"
+                                    className="absolute top-1.5 right-1.5 rounded-full bg-ink/60 p-1.5 text-paper opacity-0 transition group-hover:opacity-100 hover:bg-ink/80 focus-visible:opacity-100 pointer-coarse:opacity-100"
                                 >
                                     <Trash2 className="h-4 w-4" />
                                 </button>
