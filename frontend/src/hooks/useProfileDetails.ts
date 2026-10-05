@@ -22,7 +22,6 @@ function fieldsFrom(profile: Profile): ProfileDetailsFields {
     };
 }
 
-/** Edit the personal-info fields of the current user's profile. */
 export function useProfileDetails(profile: Profile) {
     const { refetch } = useProfileContext();
     const { showError } = useToast();

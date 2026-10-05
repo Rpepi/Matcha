@@ -4,7 +4,6 @@ import { useToast } from "@/context/ToastContext";
 import { updateProfile, updateLocation } from "@/api/profile";
 import { reverseGeocode } from "@/lib/nominatim";
 
-/** Edit the city (and backing coordinates) of the current user's profile. */
 export function useProfileCity(city: string | null) {
     const { refetch } = useProfileContext();
     const { showError } = useToast();
