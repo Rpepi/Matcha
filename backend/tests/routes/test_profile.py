@@ -321,14 +321,28 @@ class TestGetMyVisits:
     async def test_returns_visit_list(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[
-            {"id": 1, "visitor_id": 42, "created_at": None},
-            {"id": 2, "visitor_id": 7, "created_at": None},
+            {"id": 1, "visitor_id": 42, "created_at": None, "first_name": "Ada", "photo_position": 2},
+            {"id": 2, "visitor_id": 7, "created_at": None, "first_name": "Bob", "photo_position": None},
         ]))
 
         res = await auth_client.get("/profile/me/visits")
         assert res.status_code == 200
         assert len(res.json()) == 2
         assert res.json()[0]["visitor_id"] == 42
+        assert res.json()[0]["first_name"] == "Ada"
+        assert res.json()[0]["photo_position"] == 2
+        assert res.json()[1]["photo_position"] is None
+
+    async def test_query_joins_visitor_name_and_profile_photo(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/visits")
+
+        query, params = mock_db.execute.call_args.args
+        assert "JOIN users" in query and "first_name" in query
+        assert "is_profile = true" in query
+        assert len(params) == 1 and int(params[0]) == 1
 
     async def test_empty_visits(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -347,12 +361,25 @@ class TestGetMyLikes:
     async def test_returns_like_list(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[
-            {"id": 1, "liker_id": 99, "created_at": None},
+            {"id": 1, "liker_id": 99, "created_at": None, "first_name": "Cleo", "photo_position": 1},
         ]))
 
         res = await auth_client.get("/profile/me/likes")
         assert res.status_code == 200
         assert res.json()[0]["liker_id"] == 99
+        assert res.json()[0]["first_name"] == "Cleo"
+        assert res.json()[0]["photo_position"] == 1
+
+    async def test_query_joins_liker_name_and_profile_photo(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/likes")
+
+        query, params = mock_db.execute.call_args.args
+        assert "JOIN users" in query and "first_name" in query
+        assert "is_profile = true" in query
+        assert len(params) == 1 and int(params[0]) == 1
 
     async def test_empty_likes(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
