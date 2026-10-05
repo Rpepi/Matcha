@@ -539,3 +539,53 @@ class TestResetPasswordRoute:
             })
 
         mock_logger.exception.assert_called_once()
+
+
+# ── GET /auth/session ─────────────────────────────────────────────────────────
+
+class TestSessionStatusRoute:
+    async def test_valid_session_is_authenticated(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+
+        res = await auth_client.get("/auth/session")
+
+        assert res.status_code == 200
+        assert res.json() == {"authenticated": True}
+
+    async def test_no_cookie_is_a_normal_answer_not_a_401(self, client):
+        """A visitor is not an error: a 401 here would be printed in red in the console on every page load."""
+        res = await client.get("/auth/session")
+
+        assert res.status_code == 200
+        assert res.json() == {"authenticated": False}
+
+    async def test_unknown_or_expired_session_is_not_authenticated(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value=None)
+
+        res = await auth_client.get("/auth/session")
+
+        assert res.status_code == 200
+        assert res.json() == {"authenticated": False}
+
+    async def test_tampered_cookie_is_not_authenticated(self, client):
+        client.cookies.set("session", "someid$" + "0" * 64)
+
+        res = await client.get("/auth/session")
+
+        assert res.status_code == 200
+        assert res.json() == {"authenticated": False}
+
+    async def test_session_holding_something_that_is_not_an_id_is_not_authenticated(self, auth_client, mock_redis):
+        mock_redis.get = AsyncMock(return_value="not-an-id")
+
+        res = await auth_client.get("/auth/session")
+
+        assert res.status_code == 200
+        assert res.json() == {"authenticated": False}
+
+    async def test_never_touches_the_database(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+
+        await auth_client.get("/auth/session")
+
+        mock_db.execute.assert_not_called()

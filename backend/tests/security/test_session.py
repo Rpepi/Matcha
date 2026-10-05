@@ -158,7 +158,33 @@ class TestGetCurrentUserId:
         with patch("app.security.session.SECRET", secret):
             uid = await get_current_user_id(cookie, redis)
 
-        assert uid == "42"
+        assert uid == 42
+        assert isinstance(uid, int)  # Redis stores text: it is converted once, here
+
+    async def test_the_id_is_an_int_so_min_and_comparisons_are_numeric(self):
+        from app.security.session import get_current_user_id
+        import hmac, hashlib
+        secret = "any-secret-key-for-this-unit-test!"
+        sig = hmac.new(secret.encode(), b"abc123", digestmod=hashlib.sha256).hexdigest()
+
+        with patch("app.security.session.SECRET", secret):
+            nine = await get_current_user_id(f"abc123${sig}", self._make_redis("9"))
+            ten = await get_current_user_id(f"abc123${sig}", self._make_redis("10"))
+
+        assert min(nine, ten) == 9  # as strings, min('9', '10') would be '10'
+        assert nine != "9"
+
+    @pytest.mark.parametrize("stored", ["abc", "1.5", "1; DROP TABLE users", " ", "0x10"])
+    async def test_a_session_value_that_is_not_an_id_raises_401(self, stored):
+        from app.security.session import get_current_user_id
+        import hmac, hashlib
+        secret = "any-secret-key-for-this-unit-test!"
+        sig = hmac.new(secret.encode(), b"abc123", digestmod=hashlib.sha256).hexdigest()
+
+        with patch("app.security.session.SECRET", secret):
+            with pytest.raises(HTTPException) as exc:
+                await get_current_user_id(f"abc123${sig}", self._make_redis(stored))
+        assert exc.value.status_code == 401
 
     async def test_missing_cookie_raises_401(self):
         from app.security.session import get_current_user_id

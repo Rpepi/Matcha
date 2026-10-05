@@ -25,7 +25,7 @@ EXPECTED = {
     ("DELETE", "/users/{target_id}/block"):   ("block",          10,   60, 10, "account"),
     ("POST",   "/users/{target_id}/report"):  ("report",          5, 3600,  5, "account"),
     ("POST",   "/profile/photos"):            ("upload-photo",    5, 3600,  5, "account"),
-    ("PUT",    "/profile/me"):                ("profile-update", 10, 3600, 10, "account"),
+    ("PUT",    "/profile/me"):                ("profile-update", 100, 3600, 100, "account"),
 
     ("GET",  "/chat/conversations"):           ("chat-conversations", 30,   60, 10, "account"),
     ("GET",  "/chat/{target_id}/messages"):    ("chat-history",   60,   60, 20, "account"),
@@ -36,9 +36,11 @@ EXPECTED = {
 # normal use, so their absence is deliberate and asserted.
 MUST_STAY_UNLIMITED = [
     ("GET", "/auth/me"),
+    ("GET", "/auth/session"),
     ("GET", "/profile/me"),
     ("GET", "/tags"),
     ("GET", "/notifications/stream"),
+    ("GET", "/notifications/unread-count"),
     ("GET", "/profile/photos/{position}"),
     ("GET", "/users/{target_id}/photos/{position}"),
 ]
