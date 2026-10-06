@@ -1,8 +1,10 @@
+import re
 import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 from psycopg.errors import UniqueViolation
 from fastapi.responses import Response
+from app.routes.profile import RECEIVED_LIST_LIMIT
 
 JPEG_BYTES = b'\xff\xd8\xff\xe0' + b'\x00' * 200
 PNG_BYTES = b'\x89PNG\r\n\x1a\n' + b'\x00' * 200
@@ -344,6 +346,39 @@ class TestGetMyVisits:
         assert "is_profile = true" in query
         assert len(params) == 1 and int(params[0]) == 1
 
+    async def test_query_is_ready_to_run_sql(self, auth_client, mock_db, mock_redis):
+        # The DB is mocked, so nothing else would notice a placeholder that was
+        # never interpolated or an alias copied from another query.
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/visits")
+
+        query, _ = mock_db.execute.call_args.args
+        assert "{" not in query and "}" not in query
+        assert not re.search(r"\bn\.", query)
+
+    async def test_query_leaves_out_blocked_visitors_in_both_directions(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/visits")
+
+        query, _ = mock_db.execute.call_args.args
+        assert "NOT EXISTS" in query and "FROM blocks" in query
+        assert "b.blocker_id = v.visited_id AND b.blocked_id = v.visitor_id" in query
+        assert "b.blocker_id = v.visitor_id AND b.blocked_id = v.visited_id" in query
+
+    async def test_query_returns_newest_first_and_is_capped(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/visits")
+
+        query, _ = mock_db.execute.call_args.args
+        assert "ORDER BY v.created_at DESC" in query
+        assert f"LIMIT {RECEIVED_LIST_LIMIT}" in query
+
     async def test_empty_visits(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
@@ -380,6 +415,25 @@ class TestGetMyLikes:
         assert "JOIN users" in query and "first_name" in query
         assert "is_profile = true" in query
         assert len(params) == 1 and int(params[0]) == 1
+
+    async def test_query_is_ready_to_run_sql(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/likes")
+
+        query, _ = mock_db.execute.call_args.args
+        assert "{" not in query and "}" not in query
+
+    async def test_query_returns_newest_first_and_is_capped(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchall=[]))
+
+        await auth_client.get("/profile/me/likes")
+
+        query, _ = mock_db.execute.call_args.args
+        assert "ORDER BY l.created_at DESC" in query
+        assert f"LIMIT {RECEIVED_LIST_LIMIT}" in query
 
     async def test_empty_likes(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -426,7 +480,7 @@ class TestGetBlockedUsers:
         await auth_client.get("/profile/me/blocked")
 
         query, params = mock_db.execute.call_args.args
-        assert params == ("1",)
+        assert params == (1,)
         assert "b.blocker_id = %s" in query
         assert "ORDER BY b.created_at DESC" in query
 
@@ -990,7 +1044,7 @@ class TestDeleteTag:
         assert res.status_code == 200
 
         params = mock_db.execute.call_args_list[-1][0][1]
-        assert params == ("1", "sport")
+        assert params == (1, "sport")
 
     async def test_tag_not_found_returns_404(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

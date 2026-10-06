@@ -203,7 +203,7 @@ async def chat_setup(websocket: WebSocket, target_id: int):
         await websocket.close(code=1008)
         return
     redis = websocket.app.state.redis
-    sender_id = int(await get_current_user_id(websocket.cookies.get("session"), redis))
+    sender_id = await get_current_user_id(websocket.cookies.get("session"), redis)
     room_id = room_id_for(sender_id, target_id)
 
     async with pool_module.pool.connection() as conn:
@@ -347,7 +347,7 @@ async def get_conversations(request: Request, redis: Redis = Depends(get_redis),
     Raises:
         HTTPException: 401 if not authenticated.
     """
-    user_id = int(await get_current_user_id(request.cookies.get("session"), redis))
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute(CONVERSATIONS_SQL, {"me": user_id, "limit": CONVERSATIONS_LIMIT})
     rows = await cursor.fetchall()
@@ -401,7 +401,7 @@ async def get_messages(target_id: int, request: Request, redis: Redis = Depends(
         HTTPException: 400 on a bad query parameter, 401 if not
             authenticated, 403 unless both users liked each other.
     """
-    user_id = int(await get_current_user_id(request.cookies.get("session"), redis))
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
     before = parse_int_param(request.query_params.get("before"), "before", 1, MAX_ID)
     limit = parse_int_param(request.query_params.get("limit"), "limit", 1, HISTORY_MAX_LIMIT) or HISTORY_DEFAULT_LIMIT
 
@@ -431,6 +431,8 @@ async def get_messages(target_id: int, request: Request, redis: Redis = Depends(
 async def mark_seen(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Mark every message received from a matched user as seen.
 
+    The "message" notifications from that user are marked as seen too.
+
     Args:
         target_id: Id of the other participant, the author of the messages.
         request: Incoming request, carrying the ``session`` cookie.
@@ -444,7 +446,7 @@ async def mark_seen(target_id: int, request: Request, redis: Redis = Depends(get
         HTTPException: 401 if not authenticated, 403 unless both users
             liked each other.
     """
-    user_id = int(await get_current_user_id(request.cookies.get("session"), redis))
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     if not await _is_mutual_match(conn, user_id, target_id):
         raise HTTPException(status_code=403, detail="you can only chat with a match")
@@ -453,5 +455,12 @@ async def mark_seen(target_id: int, request: Request, redis: Redis = Depends(get
         "UPDATE messages SET seen = true WHERE sender_id = %s AND receiver_id = %s AND seen = false",
         (target_id, user_id),
     )
+    updated = cursor.rowcount
+    # Reading the conversation also reads its "message" notification, or the bell would
+    # keep announcing messages the user has just read.
+    await conn.execute(
+        "UPDATE notifications SET seen = true WHERE user_id = %s AND from_user_id = %s AND type = 'message' AND seen = false",
+        (user_id, target_id),
+    )
     await conn.commit()
-    return {"updated": cursor.rowcount}
+    return {"updated": updated}
