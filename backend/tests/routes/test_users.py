@@ -143,6 +143,136 @@ class TestBrowseUsers:
         assert "is_liked_by_me" in query
         assert params[:7] == [48.85, 2.35, 1, 1, 48.85, 2.35, 1]
 
+    @staticmethod
+    async def browse(auth_client, mock_db, mock_redis, url):
+        """Run GET ``url`` against an empty result and return the (query, params) sent."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=ME_ROW),
+            make_cursor(fetchall=[]),
+        ])
+        res = await auth_client.get(url)
+        assert res.status_code == 200, res.text
+        return mock_db.execute.call_args_list[1].args
+
+    async def test_default_order_is_best_score_first_with_a_stable_tie_break(self, auth_client, mock_db, mock_redis):
+        query, _ = await self.browse(auth_client, mock_db, mock_redis, "/users")
+        assert "ORDER BY score DESC, u.id" in query
+
+    @pytest.mark.parametrize("sort, expected", [
+        ("score", "ORDER BY score DESC, u.id"),
+        ("age", "ORDER BY age ASC, u.id"),
+        ("distance", "ORDER BY distance_km ASC, u.id"),
+        ("fame", "ORDER BY u.fame_rating DESC, u.id"),
+        ("tags", "ORDER BY common_tags DESC, u.id"),
+    ])
+    async def test_each_sort_uses_its_own_default_direction(self, auth_client, mock_db, mock_redis, sort, expected):
+        query, _ = await self.browse(auth_client, mock_db, mock_redis, f"/users?sort={sort}")
+        assert expected in query
+
+    @pytest.mark.parametrize("order, expected", [
+        ("asc", "ORDER BY u.fame_rating ASC, u.id"),
+        ("desc", "ORDER BY u.fame_rating DESC, u.id"),
+    ])
+    async def test_order_overrides_the_default_direction(self, auth_client, mock_db, mock_redis, order, expected):
+        query, _ = await self.browse(auth_client, mock_db, mock_redis, f"/users?sort=fame&order={order}")
+        assert expected in query
+
+    async def test_sorting_does_not_change_the_placeholders(self, auth_client, mock_db, mock_redis):
+        query, params = await self.browse(auth_client, mock_db, mock_redis, "/users?sort=distance&order=desc")
+        assert query.count("%s") == len(params)
+
+    @pytest.mark.parametrize("url", [
+        "/users?sort=name",
+        "/users?sort=",
+        "/users?sort=SCORE",
+        "/users?sort=score;DROP TABLE users",
+        "/users?sort=score,u.id",
+        "/users?sort=(SELECT 1)",
+        "/users?sort=age&order=sideways",
+        "/users?order=DESC",
+        "/users?order=asc;--",
+    ])
+    async def test_unknown_sort_or_order_is_400_before_the_database(self, auth_client, mock_db, mock_redis, url):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock()
+
+        res = await auth_client.get(url)
+
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
+
+    async def test_named_tags_must_all_be_carried(self, auth_client, mock_db, mock_redis):
+        query, params = await self.browse(auth_client, mock_db, mock_redis, "/users?tags=beach,Tech")
+        assert "t.name = ANY(%s)" in query and ") = %s" in query
+        # Lowercased, as the vocabulary is, followed by how many of them must match.
+        assert params[-3:-1] == [["beach", "tech"], 2]
+        assert query.count("%s") == len(params)
+
+    async def test_repeated_tag_names_are_merged(self, auth_client, mock_db, mock_redis):
+        _, params = await self.browse(auth_client, mock_db, mock_redis, "/users?tags=beach,beach,BEACH")
+        assert ["beach"] in params
+        assert params[params.index(["beach"]) + 1] == 1
+
+    async def test_no_tags_param_adds_no_tag_condition(self, auth_client, mock_db, mock_redis):
+        query, _ = await self.browse(auth_client, mock_db, mock_redis, "/users?tags=")
+        assert "t.name = ANY(%s)" not in query
+
+    @pytest.mark.parametrize("value", [
+        "a,b,c,d,e,f",          # six names
+        "beach,,tech",          # an empty name
+        "t" * 51,               # too long
+        "be\x00ach",            # NUL
+    ])
+    async def test_bad_tags_param_is_400_before_the_database(self, auth_client, mock_db, mock_redis, value):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock()
+
+        res = await auth_client.get("/users", params={"tags": value})
+
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
+
+    async def test_tag_names_are_never_put_in_the_query_text(self, auth_client, mock_db, mock_redis):
+        query, params = await self.browse(auth_client, mock_db, mock_redis, "/users?tags=beach' OR '1'='1")
+        assert "OR '1'='1" not in query
+        assert ["beach' or '1'='1"] in params
+
+    async def test_max_fame_is_a_parameterized_upper_bound(self, auth_client, mock_db, mock_redis):
+        query, params = await self.browse(auth_client, mock_db, mock_redis, "/users?max_fame=40")
+        assert "u.fame_rating <= %s" in query
+        assert 40 in params
+        assert query.count("%s") == len(params)
+
+    @pytest.mark.parametrize("value", ["-1", "1000001", "abc", "4.5", ""])
+    async def test_bad_max_fame_is_400(self, auth_client, mock_db, mock_redis, value):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock()
+
+        res = await auth_client.get("/users", params={"max_fame": value})
+
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
+
+    async def test_every_filter_together_keeps_params_in_query_order(self, auth_client, mock_db, mock_redis):
+        url = "/users?min_age=20&max_age=40&max_distance=50&min_fame=1&max_fame=90&min_tags=1&tags=beach,tech&sort=tags&order=asc&page=2"
+        query, params = await self.browse(auth_client, mock_db, mock_redis, url)
+
+        assert query.count("%s") == len(params)
+        # After the 7 SELECT-list parameters: the WHERE ones in the order the
+        # conditions are written, then the page offset (page 2 -> 40).
+        assert params[7:] == [
+            1, 1, 1,                      # user, blocks (x2)
+            "female", ["hetero", "bi"],   # orientation of the viewer (male, hetero)
+            20, 40,                       # min_age, max_age
+            48.85, 2.35, 50,              # max_distance
+            1, 90,                        # min_fame, max_fame
+            1, 1,                         # min_tags: viewer's id, minimum
+            ["beach", "tech"], 2,         # named tags and how many must match
+            40,
+        ]
+        assert "ORDER BY common_tags ASC, u.id" in query
+
     async def test_no_location_returns_400(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={
