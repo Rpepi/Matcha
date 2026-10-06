@@ -1,5 +1,6 @@
 from faker import Faker
 import random
+import re
 import os
 from argon2 import PasswordHasher
 import psycopg
@@ -42,19 +43,42 @@ TAGS = [
 ]
 
 
+_NOT_USERNAME_RE = re.compile(r"[^a-z0-9.]")
+
+
+def make_username(first_name: str, last_name: str) -> str:
+    """Build a username like ``eileen.cox`` from a name.
+
+    Only lowercase letters, digits and dots are kept (the rules of
+    ``app.validation.clean_username``), cut to the 30 characters of the column.
+    The seed's first names are unique, which makes the usernames unique.
+
+    Args:
+        first_name: First name of the user.
+        last_name: Last name of the user.
+
+    Returns:
+        The username.
+    """
+    return _NOT_USERNAME_RE.sub("", f"{first_name}.{last_name}".lower()).lstrip(".")[:30]
+
+
 def generate_user() -> dict:
     """Generate the data of one random fake user.
 
     Returns:
-        A mapping of ``users`` column to value: unique email and names, a
+        A mapping of ``users`` column to value: unique email, username and names, a
         hashed random password, a birth date (18 to 60 years old), bio,
         gender, orientation and coordinates. ``profile_complete`` and
         ``verified`` are already True.
     """
+    first_name = fake.unique.first_name()
+    last_name = fake.unique.last_name()
     user = {
             "email": fake.unique.email(),
-            "first_name": fake.unique.first_name(),
-            "last_name": fake.unique.last_name(),
+            "username": make_username(first_name, last_name),
+            "first_name": first_name,
+            "last_name": last_name,
             "password_hash": ph.hash(fake.unique.password()),
             "birth_date": fake.unique.date_of_birth(minimum_age=18, maximum_age=60),
             "bio": fake.unique.text(max_nb_chars=200),

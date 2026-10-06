@@ -10,7 +10,7 @@ JPEG_BYTES = b'\xff\xd8\xff\xe0' + b'\x00' * 200
 PNG_BYTES = b'\x89PNG\r\n\x1a\n' + b'\x00' * 200
 
 PROFILE_ROW = {
-    "id": "1", "email": "alice@test.com",
+    "id": "1", "email": "alice@test.com", "username": "alice_s",
     "first_name": "Alice", "last_name": "Smith", "gender": "female",
     "orientation": "bisexual", "bio": "hello", "birth_date": "2000-01-01",
     "fame_rating": 0, "latitude": 48.8, "longitude": 2.3, "city": "Paris",
@@ -42,9 +42,23 @@ class TestGetProfileMe:
         assert res.status_code == 200
         data = res.json()
         assert data["email"] == "alice@test.com"
+        assert data["username"] == "alice_s"
         assert data["tags"] == ["hiking", "music"]
         assert len(data["photos"]) == 1
         assert data["photos"][0]["path"] == "/photos/1.jpg"
+
+    async def test_query_selects_the_username(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=PROFILE_ROW),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+        ])
+
+        await auth_client.get("/profile/me")
+
+        assert "username" in mock_db.execute.await_args_list[0].args[0]
+        assert "password_hash" not in mock_db.execute.await_args_list[0].args[0]
 
     async def test_no_cookie_returns_401(self, client):
         res = await client.get("/profile/me")
@@ -219,6 +233,48 @@ class TestPutProfileMe:
             res = await auth_client.put("/profile/me", json={"email": "taken@test.com"})
 
         assert res.status_code == 409
+
+    async def test_username_can_be_changed(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),  # current profile
+            make_cursor(),                                 # UPDATE
+        ])
+
+        res = await auth_client.put("/profile/me", json={"username": "  New.Name  "})
+
+        assert res.status_code == 200
+        query, params = mock_db.execute.await_args_list[1].args
+        assert "username = %s" in query
+        assert "New.Name" in params  # stripped, case kept
+        mock_db.commit.assert_awaited_once()
+
+    async def test_taken_username_returns_409_with_its_own_message(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=UniqueViolation("duplicate key"))
+
+        with patch("app.routes.profile.is_username_conflict", return_value=True):
+            res = await auth_client.put("/profile/me", json={"username": "taken"})
+
+        assert res.status_code == 409
+        assert res.json()["detail"] == "Username already taken"
+
+    async def test_duplicate_email_keeps_the_email_message(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=UniqueViolation("duplicate key"))
+
+        with patch("app.routes.profile.generate_verification_token", return_value="tok123"), \
+             patch("app.routes.profile.send_verification_email"):
+            res = await auth_client.put("/profile/me", json={"email": "taken@test.com"})
+
+        assert res.json()["detail"] == "Email already taken"
+
+    @pytest.mark.parametrize("username", ["ab", "a" * 31, "has space", "a@b", "-x1", "x\ny", 5, None])
+    async def test_invalid_username_returns_400_without_touching_the_db(self, auth_client, mock_db, mock_redis, username):
+        mock_redis.get = AsyncMock(return_value="1")
+        res = await auth_client.put("/profile/me", json={"username": username})
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
 
     async def test_no_fields_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

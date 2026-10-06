@@ -29,15 +29,15 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: int) -> dict:
         user_id: Id of the user to fetch.
 
     Returns:
-        A dict with ``id``, ``first_name``, ``last_name``, ``gender``,
-        ``orientation``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
-        ``is_online`` and ``last_seen``.
+        A dict with ``id``, ``username``, ``first_name``, ``last_name``,
+        ``gender``, ``orientation``, ``bio``, ``birth_date``, ``fame_rating``,
+        ``city``, ``is_online`` and ``last_seen``.
 
     Raises:
         HTTPException: 404 if the user does not exist.
     """
     cursor = await conn.execute("""
-        SELECT id, first_name, last_name, gender, orientation,
+        SELECT id, username, first_name, last_name, gender, orientation,
             bio, birth_date, fame_rating, city, is_online, last_seen
         FROM users WHERE id = %s
     """, (user_id,))

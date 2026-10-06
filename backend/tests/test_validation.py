@@ -2,8 +2,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.validation import (
-    clean_str, clean_email, clean_choice, clean_int, clean_float,
-    parse_int_param, valid_target_id, GENDERS, MAX_ID,
+    clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
+    parse_int_param, valid_target_id, GENDERS, MAX_ID, MIN_USERNAME, MAX_USERNAME,
 )
 
 
@@ -115,6 +115,38 @@ class TestCleanEmail:
 
 
 # ── clean_choice ──────────────────────────────────────────────────────────────
+
+class TestCleanUsername:
+    @pytest.mark.parametrize("value", [
+        "abc", "Alice", "alice.smith", "alice-s_2", "9lives", "a" * MAX_USERNAME, "  alice  ",
+    ])
+    def test_accepts_letters_digits_and_separators(self, value):
+        assert clean_username(value) == value.strip()
+
+    def test_keeps_the_case(self):
+        assert clean_username("AlIcE") == "AlIcE"
+
+    @pytest.mark.parametrize("value", [
+        "a" * (MIN_USERNAME - 1), "a" * (MAX_USERNAME + 1), "", "   ",
+        "has space", "ali@ce", "ali/ce", "alice!", "alicé", "ali\tce", "ali\nce",
+        "-alice", ".alice", "_alice", "<b>alice</b>", "alice'; DROP TABLE users;--",
+    ])
+    def test_refuses_what_is_not_a_username(self, value):
+        assert status_of(clean_username, value) == 400
+
+    @pytest.mark.parametrize("value", [None, 5, True, ["alice"], {"a": 1}, "ali\x00ce", "\ud800alice"])
+    def test_refuses_non_strings_and_unsafe_strings(self, value):
+        assert status_of(clean_username, value) == 400
+
+    def test_a_username_never_contains_an_at_sign(self):
+        # Login tells a username from an email by that character.
+        assert status_of(clean_username, "alice@x.co") == 400
+
+    def test_error_names_the_field(self):
+        with pytest.raises(HTTPException) as exc:
+            clean_username("a!", "login")
+        assert exc.value.detail.startswith("login")
+
 
 class TestCleanChoice:
     def test_accepts_allowed(self):

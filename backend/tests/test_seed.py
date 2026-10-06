@@ -2,11 +2,12 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock, patch, call
 from psycopg import errors as psycopg_errors
-from app.seed import generate_user, TAGS
+from app.seed import generate_user, make_username, TAGS
+from app.validation import clean_username
 
 
 REQUIRED_KEYS = {
-    "email", "first_name", "last_name",
+    "email", "username", "first_name", "last_name",
     "password_hash", "birth_date", "bio",
     "gender", "orientation",
     "latitude", "longitude",
@@ -70,6 +71,29 @@ class TestGenerateUser:
         u2 = generate_user()
         assert u1["email"] != u2["email"]
 
+    def test_two_users_have_different_usernames(self):
+        assert generate_user()["username"] != generate_user()["username"]
+
+    def test_username_is_accepted_by_the_registration_rules(self):
+        for _ in range(50):
+            user = generate_user()
+            assert clean_username(user["username"]) == user["username"]
+
+
+class TestMakeUsername:
+    @pytest.mark.parametrize("first, last, expected", [
+        ("Eileen", "Cox", "eileen.cox"),
+        ("Anne-Marie", "O'Neil", "annemarie.oneil"),
+        ("José", "Núñez", "jos.nez"),          # what is not a-z is dropped
+        ("A" * 40, "B" * 40, "a" * 30),
+    ])
+    def test_keeps_lowercase_letters_digits_and_dots(self, first, last, expected):
+        assert make_username(first, last) == expected
+
+    def test_never_starts_with_a_dot(self):
+        assert not make_username("!!!", "Cox").startswith(".")
+
+
 
 # ── seed() function ───────────────────────────────────────────────────────────
 
@@ -78,7 +102,7 @@ from datetime import date as _date
 
 def _fake_user(n: int) -> dict:
     return {
-        "email": f"user{n}@test.com",
+        "email": f"user{n}@test.com", "username": f"user{n}",
         "first_name": "A", "last_name": "B",
         "password_hash": "$argon2id$v=19$m=19456,t=2,p=1$fake",
         "birth_date": _date(1990, 1, 1), "bio": "bio",

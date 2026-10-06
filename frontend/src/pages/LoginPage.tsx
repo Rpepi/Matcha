@@ -8,7 +8,7 @@ import { Field, Button, OrDivider } from "../components/FormControls";
 import GoogleAuthButton from "../components/GoogleAuthButton";
 
 export default function LoginPage() {
-    const [email, setEmail] = useState('');
+    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate()
@@ -16,7 +16,7 @@ export default function LoginPage() {
     const { showError } = useToast()
     let loginPossible = false
 
-    if ( password && email )
+    if ( password && username.trim() )
         loginPossible = true;
     else
         loginPossible = false;
@@ -32,7 +32,7 @@ export default function LoginPage() {
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const response = await login(email, password)
+        const response = await login(username.trim(), password)
         if (response.ok) {
             const data = await response.json();
             await refetch();
@@ -40,7 +40,7 @@ export default function LoginPage() {
         }
         else {
             const data = await response.json().catch(() => null);
-            showError(data?.detail ?? 'Invalid email or password')
+            showError(data?.detail ?? 'Invalid username or password')
         }
     }
 
@@ -58,13 +58,13 @@ export default function LoginPage() {
 
             <form className="mt-4 flex flex-col gap-4" onSubmit={HandleSubmit} noValidate>
                 <Field
-                    label="Email"
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    label="Username or email"
+                    id="username"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     required
                 />
                 <Field

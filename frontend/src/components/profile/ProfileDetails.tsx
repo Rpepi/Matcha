@@ -74,6 +74,22 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                 )}
             </div>
 
+            <Row
+                label="Username"
+                value={profile.username}
+                input={
+                    isEditing && (
+                        <input
+                            className={fieldClasses}
+                            value={fields.username}
+                            minLength={3}
+                            maxLength={30}
+                            autoComplete="username"
+                            onChange={(e) => setField("username", e.target.value)}
+                        />
+                    )
+                }
+            />
             <DualRow
                 left={{
                     label: "First name",

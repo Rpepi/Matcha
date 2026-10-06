@@ -19,7 +19,7 @@ BROWSE_ROW = {
 }
 
 USER_ROW = {
-    "id": 2, "first_name": "Bob", "last_name": "Smith",
+    "id": 2, "username": "bob.smith", "first_name": "Bob", "last_name": "Smith",
     "gender": "male", "orientation": "heterosexual", "bio": "hey",
     "birth_date": "1995-06-15", "fame_rating": 10, "city": "Lyon",
     "is_online": False, "last_seen": None,
@@ -220,12 +220,30 @@ class TestGetUserProfile:
         assert res.status_code == 200
         data = res.json()
         assert data["first_name"] == "Bob"
+        assert data["username"] == "bob.smith"
         assert "email" not in data
         assert "password_hash" not in data
         assert len(data["photos"]) == 1
         assert data["tags"] == ["sport"]
         assert data["is_liked_by_me"] is False
         assert data["is_match"] is False
+
+    async def test_query_selects_the_username(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone=USER_ROW),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
+            make_cursor(fetchone=None),
+        ])
+
+        await auth_client.get("/users/2")
+
+        query = mock_db.execute.await_args_list[1].args[0]
+        assert "username" in query
+        assert "email" not in query and "password_hash" not in query
 
     async def test_liked_but_not_matched(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
