@@ -226,6 +226,7 @@ class TestGetUserProfile:
         assert len(data["photos"]) == 1
         assert data["tags"] == ["sport"]
         assert data["is_liked_by_me"] is False
+        assert data["likes_me"] is False
         assert data["is_match"] is False
 
     async def test_query_selects_the_username(self, auth_client, mock_db, mock_redis):
@@ -260,6 +261,25 @@ class TestGetUserProfile:
         assert res.status_code == 200
         data = res.json()
         assert data["is_liked_by_me"] is True
+        assert data["likes_me"] is False
+        assert data["is_match"] is False
+
+    async def test_they_like_me_but_i_have_not_liked_back(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone=USER_ROW),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": True}),
+            make_cursor(fetchone=None),  # visits upsert: no row -> no notification
+        ])
+
+        res = await auth_client.get("/users/2")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["likes_me"] is True
+        assert data["is_liked_by_me"] is False
         assert data["is_match"] is False
 
     async def test_mutual_like_is_match(self, auth_client, mock_db, mock_redis):
@@ -277,6 +297,7 @@ class TestGetUserProfile:
         assert res.status_code == 200
         data = res.json()
         assert data["is_liked_by_me"] is True
+        assert data["likes_me"] is True
         assert data["is_match"] is True
 
     async def test_own_profile_returns_400(self, auth_client, mock_redis):

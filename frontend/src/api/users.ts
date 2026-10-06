@@ -20,6 +20,8 @@ export interface UserProfileDetail {
     photos: UserPhoto[];
     tags: string[];
     is_liked_by_me: boolean;
+    /** This user likes the current user (and the current user may not have liked them back yet). */
+    likes_me: boolean;
     is_match: boolean;
 }
 

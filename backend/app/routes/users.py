@@ -292,7 +292,9 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
 
     Returns:
         The public fields of the user (see ``_get_user_or_404``) plus
-        ``photos``, ``tags``, ``is_liked_by_me`` and ``is_match``.
+        ``photos``, ``tags``, ``is_liked_by_me``, ``likes_me`` (the user
+        likes the current user, whether or not it is returned) and
+        ``is_match`` (both like each other).
 
     Raises:
         HTTPException: 400 if ``target_id`` is the current user; 401 if not
@@ -329,6 +331,7 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     """, (user_id, target_id, target_id, user_id))
     like_status = await cursor.fetchone()
     profile["is_liked_by_me"] = like_status["liked_by_me"]
+    profile["likes_me"] = like_status["liked_by_them"]
     profile["is_match"] = like_status["liked_by_me"] and like_status["liked_by_them"]
 
     try:
