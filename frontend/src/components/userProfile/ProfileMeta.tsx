@@ -1,11 +1,18 @@
 import { MapPin } from "lucide-react";
-import type { UserProfileDetail } from "@/api/users";
 
 function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-export default function ProfileMeta({ profile }: { profile: UserProfileDetail }) {
+interface ProfileMetaProps {
+    profile: {
+        gender: string | null;
+        city: string | null;
+        is_online: boolean;
+    };
+}
+
+export default function ProfileMeta({ profile }: ProfileMetaProps) {
     const hasMeta = profile.gender || profile.city;
 
     return (

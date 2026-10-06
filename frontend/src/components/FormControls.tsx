@@ -5,7 +5,7 @@ import type {
     ReactNode,
 } from "react"
 
-const fieldClasses =
+export const fieldClasses =
     "w-full rounded-xl border border-grey/30 bg-transparent px-4 py-2.5 text-ink placeholder:text-ink/40 outline-none transition focus:ring-2 focus:ring-grey/30";
 
 interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
