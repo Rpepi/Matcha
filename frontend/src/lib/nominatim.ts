@@ -35,3 +35,13 @@ export function formatPlaceLabel(result: NominatimResult): string {
 
     return label && label.length <= MAX_CITY_LENGTH ? label : fallback;
 }
+
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14`);
+        const data: NominatimResult = await res.json();
+        return data?.display_name ? formatPlaceLabel(data) : null;
+    } catch {
+        return null;
+    }
+}

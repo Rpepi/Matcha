@@ -9,6 +9,7 @@ import LoginPage from "./pages/LoginPage";
 import BrowsePage from "./pages/BrowsePage";
 import ChatPage from "./pages/ChatPage";
 import ProfilePage from "./pages/ProfilePage";
+import ProfilePreviewPage from "./pages/ProfilePreviewPage";
 import RegisterPage from "./pages/RegisterPage";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import UserPage from "./pages/UserPage";
@@ -30,6 +31,7 @@ function App() {
                             </Route>
                             <Route path="/chat/:id?" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+                            <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreviewPage /></ProtectedRoute>} />
                             <Route path="/complete-profile" element={<OnboardingRoute><CompleteProfilePage /></OnboardingRoute>} />
                             <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
                             <Route path="/verify" element={<VerifyPage />} />

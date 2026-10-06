@@ -23,6 +23,7 @@ export default function BioStep({ bio, setBio, onBack, onNext }: BioStepProps) {
                 placeholder="A line about you"
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
+                maxLength={500}
             />
         </StepPanel>
     );

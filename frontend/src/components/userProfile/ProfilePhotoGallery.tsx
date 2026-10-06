@@ -1,13 +1,25 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import type { UserProfileDetail } from "@/api/users";
+import type { UserPhoto } from "@/api/users";
 import PhotoFallback from "@/components/PhotoFallback";
 
 const buttonClasses =
     "flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-paper/90 text-ink transition hover:bg-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-matcha";
 
-export default function ProfilePhotoGallery({ profile }: { profile: UserProfileDetail }) {
+interface ProfilePhotoGalleryProps {
+    profile: {
+        id: number;
+        first_name: string;
+        is_online: boolean;
+        photos: UserPhoto[];
+    };
+    photoUrl: (photo: UserPhoto) => string;
+    backTo: string;
+    backLabel: string;
+}
+
+export default function ProfilePhotoGallery({ profile, photoUrl, backTo, backLabel }: ProfilePhotoGalleryProps) {
     const [index, setIndex] = useState(0);
     const photos = profile.photos;
     const count = photos.length || 1;
@@ -16,10 +28,7 @@ export default function ProfilePhotoGallery({ profile }: { profile: UserProfileD
         setIndex(((next % count) + count) % count);
     }
 
-    const src =
-        photos.length > 0
-            ? `/api/users/${profile.id}/photos/${photos[index].position}?v=${encodeURIComponent(photos[index].path)}`
-            : null;
+    const src = photos.length > 0 ? photoUrl(photos[index]) : null;
 
     return (
         <section
@@ -33,7 +42,7 @@ export default function ProfilePhotoGallery({ profile }: { profile: UserProfileD
             )}
 
             <div className="absolute inset-x-4 top-4 flex items-center gap-3">
-                <Link to="/browse" aria-label="Back to Browse" className={buttonClasses}>
+                <Link to={backTo} aria-label={backLabel} className={buttonClasses}>
                     <ArrowLeft className="h-5 w-5" />
                 </Link>
             </div>
