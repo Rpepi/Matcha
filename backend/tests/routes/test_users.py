@@ -460,17 +460,35 @@ class TestLikeUser:
         assert res.status_code == 200
         assert res.json()["message"] == "already liked"
 
-    async def test_target_without_profile_picture_returns_404(self, auth_client, mock_db, mock_redis):
+    async def test_user_without_profile_picture_cannot_like_returns_403(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=None),               # not blocked
             make_cursor(fetchone={"1": 1}),           # user exists
-            make_cursor(fetchone={"exists": False}),  # no profile picture
+            make_cursor(fetchone={"exists": False}),  # the liker has no profile picture
         ])
 
         res = await auth_client.post("/users/2/like")
-        assert res.status_code == 404
+        assert res.status_code == 403
         assert "profile picture" in res.json()["detail"]
+        assert mock_db.execute.await_count == 3  # nothing was written
+
+    async def test_the_picture_checked_is_the_likers_not_the_targets(self, auth_client, mock_db, mock_redis):
+        # The target (2) may have no picture at all, as every seeded user.
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone={"1": 1}),
+            make_cursor(fetchone={"exists": True}),
+            make_cursor(fetchone=None),              # ON CONFLICT: already liked
+        ])
+
+        res = await auth_client.post("/users/2/like")
+        assert res.status_code == 200
+
+        query, params = mock_db.execute.await_args_list[2].args
+        assert "FROM photos" in query and "is_profile = true" in query
+        assert [int(p) for p in params] == [1]  # the current user, not 2
 
     async def test_like_self_returns_400(self, auth_client, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")

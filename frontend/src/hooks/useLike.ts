@@ -4,18 +4,15 @@ import { useBrowseContext, type LikeState } from "@/context/BrowseContext";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 
-export function noPictureMessage(firstName: string): string {
-    return `${firstName} hasn't added a profile picture yet, so you can't like them.`;
-}
+export const NO_PICTURE_MESSAGE = "Add a profile picture to your profile to like people.";
 
-async function describeFailure(response: Response, liking: boolean, firstName: string): Promise<string> {
+function describeFailure(response: Response, liking: boolean): string {
     if (response.status === 429) return "You're doing that too fast. Please wait a moment and try again.";
 
-    if (response.status === 404 && liking) {
-        const data = await response.json().catch(() => null);
-        const detail = typeof data?.detail === "string" ? data.detail : "";
-        return detail.includes("profile picture") ? noPictureMessage(firstName) : "This profile is no longer available.";
-    }
+    // The server refuses a like from someone with no profile picture of their own.
+    if (response.status === 403 && liking) return NO_PICTURE_MESSAGE;
+
+    if (response.status === 404 && liking) return "This profile is no longer available.";
 
     return liking ? "Could not like this profile. Please try again." : "Could not remove your like. Please try again.";
 }
@@ -25,13 +22,14 @@ async function describeFailure(response: Response, liking: boolean, firstName: s
  * server refuses. `server` is what the page knew when it loaded; anything the
  * user did since is in the shared browse context and wins.
  *
- * `canLike` false means the server is known to refuse (no profile picture):
- * liking then explains why straight away, without flipping the heart or
+ * Liking needs a profile picture of one's own. Without one, the server is known
+ * to refuse, so liking explains why straight away, without flipping the heart or
  * spending a request from the rate-limit budget. Unliking is always allowed.
  */
-export function useLike(userId: number, firstName: string, server: LikeState, canLike = true) {
+export function useLike(userId: number, firstName: string, server: LikeState) {
     const { likes, setLike } = useBrowseContext();
-    const { refetch: refetchProfile } = useProfileContext();
+    const { profile, refetch: refetchProfile } = useProfileContext();
+    const canLike = profile?.photos.some((photo) => photo.is_profile) ?? false;
     const { showError, showNotice } = useToast();
     const [isPending, setIsPending] = useState(false);
     const inFlight = useRef(false);
@@ -41,7 +39,7 @@ export function useLike(userId: number, firstName: string, server: LikeState, ca
     const toggle = useCallback(async () => {
         if (inFlight.current) return; // a double click must not send two opposite requests
         if (!state.liked && !canLike) {
-            showError(noPictureMessage(firstName));
+            showError(NO_PICTURE_MESSAGE);
             return;
         }
         inFlight.current = true;
@@ -74,7 +72,7 @@ export function useLike(userId: number, firstName: string, server: LikeState, ca
             if (!liking && response.status === 404) return;
 
             setLike(userId, previous);
-            showError(await describeFailure(response, liking, firstName));
+            showError(describeFailure(response, liking));
         } catch {
             setLike(userId, previous);
             showError("Network error. Check your connection and try again.");
