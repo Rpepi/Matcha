@@ -127,7 +127,8 @@ class TestSeededPlaces:
             city = generate_user()["city"]
             counts[city] = counts.get(city, 0) + 1
         assert set(counts) == {c[0] for c in CITIES}
-        assert counts["Paris"] == max(counts.values())
+        biggest = max(CITIES, key=lambda c: c[3])[0]
+        assert counts[biggest] == max(counts.values())
 
     def test_last_seen_is_in_the_past_30_days(self):
         now = datetime.now(timezone.utc).replace(tzinfo=None)
