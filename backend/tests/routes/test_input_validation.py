@@ -441,6 +441,10 @@ class TestBrowseInput:
         "max_distance=-1", "max_distance=40001", "max_distance=99999999999999999999",
         "min_fame=-1", "min_fame=1000001", "min_fame=99999999999999999999",
         "min_tags=-1", "min_tags=6",
+        "max_fame=-1", "max_fame=1000001", "max_fame=99999999999999999999", "max_fame=%00", "max_fame=%D9%A3",
+        "sort=name", "sort=%00", "sort=score%3BDROP%20TABLE%20users", "sort=" + "a" * 5000,
+        "order=up", "order=ASC", "order=%00", "order=asc%20desc",
+        "tags=a,b,c,d,e,f", "tags=a,,b", "tags=%00", "tags=" + "t" * 51, "tags=" + "a," * 5000,
         "min_age=%00", "min_age=1_8", "min_age=%20", "min_age=%D9%A3", "page=%2B1",
     ])
     async def test_bad_query_param_is_400_and_never_hits_db(self, authed, mock_db, query):

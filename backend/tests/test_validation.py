@@ -3,7 +3,8 @@ from fastapi import HTTPException
 
 from app.validation import (
     clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
-    parse_int_param, valid_target_id, GENDERS, MAX_ID, MIN_USERNAME, MAX_USERNAME,
+    parse_int_param, parse_choice_param, parse_tags_param, valid_target_id,
+    GENDERS, MAX_ID, MIN_USERNAME, MAX_USERNAME, MAX_TAGS_FILTER, MAX_TAG,
 )
 
 
@@ -220,6 +221,48 @@ class TestParseIntParam:
 
 
 # ── valid_target_id ───────────────────────────────────────────────────────────
+
+class TestParseChoiceParam:
+    ALLOWED = ("asc", "desc")
+
+    def test_absent_is_none(self):
+        assert parse_choice_param(None, "order", self.ALLOWED) is None
+
+    @pytest.mark.parametrize("value", ["asc", "desc"])
+    def test_accepts_the_allowed_values(self, value):
+        assert parse_choice_param(value, "order", self.ALLOWED) == value
+
+    @pytest.mark.parametrize("value", ["", "ASC", " asc", "asc ", "sideways", "asc;--", "asc,desc", "a" * 10_000])
+    def test_refuses_everything_else_exactly(self, value):
+        assert status_of(parse_choice_param, value, "order", self.ALLOWED) == 400
+
+    def test_error_lists_the_choices(self):
+        with pytest.raises(HTTPException) as exc:
+            parse_choice_param("x", "order", self.ALLOWED)
+        assert "'order'" in exc.value.detail and "asc, desc" in exc.value.detail
+
+
+class TestParseTagsParam:
+    @pytest.mark.parametrize("value", [None, ""])
+    def test_absent_or_empty_is_none(self, value):
+        assert parse_tags_param(value) is None
+
+    def test_splits_strips_and_lowercases(self):
+        assert parse_tags_param(" Beach , TECH") == ["beach", "tech"]
+
+    def test_keeps_the_order_and_merges_repeats(self):
+        assert parse_tags_param("tech,beach,TECH,beach") == ["tech", "beach"]
+
+    def test_accepts_the_maximum_number_of_tags(self):
+        assert len(parse_tags_param(",".join(f"t{i}" for i in range(MAX_TAGS_FILTER)))) == MAX_TAGS_FILTER
+
+    def test_refuses_one_more(self):
+        assert status_of(parse_tags_param, ",".join(f"t{i}" for i in range(MAX_TAGS_FILTER + 1))) == 400
+
+    @pytest.mark.parametrize("value", [",", "beach,", ",beach", "beach,,tech", " ", "t" * (MAX_TAG + 1), "be\x00ach", "be\tach"])
+    def test_refuses_empty_oversized_and_control_characters(self, value):
+        assert status_of(parse_tags_param, value) == 400
+
 
 class TestValidTargetId:
     @pytest.mark.parametrize("value", [1, 42, MAX_ID])

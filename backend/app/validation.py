@@ -18,6 +18,7 @@ MAX_REASON = 500
 MAX_MESSAGE = 1000
 MAX_SEARCH = 50
 MAX_TOKEN = 512
+MAX_TAGS_FILTER = 5  # same as the 5 tags a profile can carry
 MAX_ID = 2**31 - 1  # ids are SERIAL (int4)
 
 GENDERS = ("male", "female", "other")
@@ -230,6 +231,56 @@ def parse_int_param(value: str | None, name: str, lo: int, hi: int) -> int | Non
     if not lo <= number <= hi:
         raise HTTPException(status_code=400, detail=f"'{name}' must be between {lo} and {hi}")
     return number
+
+
+def parse_choice_param(value: str | None, name: str, allowed: tuple[str, ...]) -> str | None:
+    """Parse an optional query parameter that must be one of a closed set.
+
+    Args:
+        value: Raw parameter value, or ``None`` if absent.
+        name: Parameter name, used in the error message.
+        allowed: The accepted values.
+
+    Returns:
+        The value, or ``None`` if the parameter is absent.
+
+    Raises:
+        HTTPException: 400 if the value is not one of ``allowed``.
+    """
+    if value is None:
+        return None
+    if value not in allowed:
+        raise HTTPException(status_code=400, detail=f"'{name}' must be one of: {', '.join(allowed)}")
+    return value
+
+
+def parse_tags_param(value: str | None, name: str = "tags") -> list[str] | None:
+    """Parse an optional comma-separated list of tag names from a query string.
+
+    Names are stripped and lowercased (the tag vocabulary is lowercase) and
+    repeated names are merged. An empty parameter counts as absent.
+
+    Args:
+        value: Raw parameter value, or ``None`` if absent.
+        name: Parameter name, used in the error message.
+
+    Returns:
+        The distinct names in the order given, or ``None`` if absent or empty.
+
+    Raises:
+        HTTPException: 400 if a name is empty, too long or contains control
+            characters, or if there are more than ``MAX_TAGS_FILTER`` names.
+    """
+    if not value:
+        return None
+    names: list[str] = []
+    for raw in value.split(","):
+        tag = clean_str(raw, name, MAX_TAG).lower()
+        if tag not in names:
+            names.append(tag)
+    if len(names) > MAX_TAGS_FILTER:
+        raise HTTPException(status_code=400, detail=f"'{name}' accepts at most {MAX_TAGS_FILTER} tags")
+    return names
 
 
 def valid_target_id(target_id: int) -> int:
