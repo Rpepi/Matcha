@@ -280,7 +280,17 @@ export function useChat(options: UseChatOptions) {
         return () => {
             disposed = true;
             window.clearTimeout(retryTimer);
-            socket?.close();
+            if (socket) {
+                const leaving = socket;
+                leaving.onmessage = null;
+                leaving.onclose = null;
+                // Closing a socket still connecting makes the browser print a warning in the
+                // console ("closed before the connection is established"). In development React
+                // mounts and unmounts the effect at once, so this happens on every chat page:
+                // let it open, then close it.
+                if (leaving.readyState === WebSocket.CONNECTING) leaving.onopen = () => leaving.close();
+                else leaving.close();
+            }
             socketRef.current = null;
         };
     }, [targetId, myId, applyMessages, applyHasMore, handleAccessFailure, requestSeen]);

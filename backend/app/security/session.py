@@ -58,7 +58,7 @@ async def create_session(response: Response, user_id: int, conn: Redis):
         max_age=604800
     )
 
-async def get_current_user_id(cookie: str, redis: Redis) -> str:
+async def get_current_user_id(cookie: str, redis: Redis) -> int:
     """Resolve a session cookie to the id of the logged-in user.
 
     Splits the cookie into session id and HMAC, checks the signature in
@@ -69,11 +69,15 @@ async def get_current_user_id(cookie: str, redis: Redis) -> str:
         redis: Redis client holding the sessions.
 
     Returns:
-        The user id stored in the session, as a string.
+        The user id stored in the session, as an ``int``. Redis stores text, so
+        it is converted once here: every caller then compares and orders real
+        integers (``min``, ``LEAST``, ``==``) instead of strings, where ``'10'``
+        sorts before ``'9'`` and ``'1' == 1`` is false.
 
     Raises:
         HTTPException: 401 if the cookie is missing or malformed, the
-            signature is invalid, or the session is unknown or expired.
+            signature is invalid, or the session is unknown, expired or holds
+            something that is not a user id.
     """
     if not cookie or "$" not in cookie:
         raise HTTPException(status_code=401, detail="Not Authenticated")
@@ -83,7 +87,10 @@ async def get_current_user_id(cookie: str, redis: Redis) -> str:
     if not hmac.compare_digest(expected, received_hmac):
         raise HTTPException(status_code=401, detail="Not Authenticated")
 
-    user_id = await redis.get("session:" + session_id)
-    if not user_id:
+    stored = await redis.get("session:" + session_id)
+    if not stored:
         raise HTTPException(status_code=401, detail="Session expired or invalid")
-    return user_id
+    try:
+        return int(stored)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Session expired or invalid")

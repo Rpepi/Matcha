@@ -1,17 +1,20 @@
 import type { ReactElement } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { Search, Send, UserRound, LogOut, type LucideIcon } from "lucide-react";
+import { Search, Send, UserRound, LogOut, Bell, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.png";
 import { logout } from "../api/auth";
 import { useProfileContext } from "../context/ProfileContext";
 import { useChatContext } from "../context/ChatContext";
+import { useNotificationContext } from "@/context/NotificationContext";
 
 const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/browse", icon: Search, label: "Browse" },
     { to: "/chat", icon: Send, label: "Messages" },
+    { to: "/notification", icon: Bell, label: "Notification"},
     { to: "/profile", icon: UserRound, label: "Profile" },
 ];
+
 
 function IconTooltip({ label, children }: { label: string; children: ReactElement }) {
     return (
@@ -28,9 +31,11 @@ function IconTooltip({ label, children }: { label: string; children: ReactElemen
     );
 }
 
+
 export default function Sidebar() {
     const { refetch } = useProfileContext();
     const { unreadTotal } = useChatContext();
+    const {unreadCount} = useNotificationContext();
 
     async function handleLogout() {
         await logout();
@@ -45,7 +50,9 @@ export default function Sidebar() {
 
             <nav className="flex items-center gap-6 md:flex-col md:gap-1">
                 {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
-                    const badge = to === "/chat" ? unreadTotal : 0;
+                    let badge = to === "/chat"  ? unreadTotal : 0;
+                    badge = to ==="/notification" ? unreadCount : badge
+                    
                     const description = badge > 0 ? `${label}, ${badge} unread` : label;
 
                     return (
@@ -53,7 +60,7 @@ export default function Sidebar() {
                             <NavLink
                                 to={to}
                                 aria-label={description}
-                                className={({ isActive }) =>
+                                className={({ isActive }) => 
                                     `relative cursor-pointer rounded-xl p-3 hover:bg-matcha/25 transition ${
                                         isActive ? "text-ink" : "text-grey hover:text-ink "
                                     }`
@@ -68,6 +75,7 @@ export default function Sidebar() {
                                         {badge > 99 ? "99+" : badge}
                                     </span>
                                 )}
+                                
                             </NavLink>
                         </IconTooltip>
                     );

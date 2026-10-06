@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
+async def _get_user_or_404(conn: AsyncConnection, user_id: int) -> dict:
     """Fetch the public columns of a user.
 
     Args:
@@ -47,7 +47,7 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: str) -> dict:
     return row
 
 
-async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
+async def _is_blocked(conn: AsyncConnection, a: int, b: int) -> bool:
     """Check whether a block exists between two users, in either direction.
 
     Args:
@@ -66,7 +66,7 @@ async def _is_blocked(conn: AsyncConnection, a: str, b: str) -> bool:
     return await cursor.fetchone() is not None
 
 
-async def _recalculate_fame(conn: AsyncConnection, user_id: str):
+async def _recalculate_fame(conn: AsyncConnection, user_id: int):
     """Recompute and store a user's fame rating.
 
     The rating is the number of likes received plus the number of those
@@ -301,13 +301,13 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    if str(target_id) == str(user_id):
+    if target_id == user_id:
         raise HTTPException(status_code=400, detail="use /profile/me for your own profile")
 
-    if await _is_blocked(conn, user_id, str(target_id)):
+    if await _is_blocked(conn, user_id, target_id):
         raise HTTPException(status_code=404, detail="user not found")
 
-    profile = await _get_user_or_404(conn, str(target_id))
+    profile = await _get_user_or_404(conn, target_id)
 
     cursor = await conn.execute(
         "SELECT position, path, is_profile FROM photos WHERE user_id = %s ORDER BY position",
@@ -344,10 +344,10 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
         )
         row = await cursor.fetchone()
         if row:
-            await insert_notification(conn, str(target_id), user_id, "visit")
+            await insert_notification(conn, target_id, user_id, "visit")
         await conn.commit()
         if row:
-            await publish_notification(str(target_id), user_id, "visit", redis)
+            await publish_notification(target_id, user_id, "visit", redis)
     except Exception:
         logger.exception("Failed to record visit from user %s to %s", user_id, target_id)
         await conn.rollback()
@@ -377,13 +377,13 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    if str(target_id) == str(user_id):
+    if target_id == user_id:
         raise HTTPException(status_code=400, detail="use /profile/photos/{position} for your own photos")
 
     if position < 1 or position > 5:
         raise HTTPException(status_code=400, detail="invalid position (1-5)")
 
-    if await _is_blocked(conn, user_id, str(target_id)):
+    if await _is_blocked(conn, user_id, target_id):
         raise HTTPException(status_code=404, detail="user not found")
 
     cursor = await conn.execute(
@@ -429,10 +429,10 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    if str(target_id) == str(user_id):
+    if target_id == user_id:
         raise HTTPException(status_code=400, detail="cannot like yourself")
 
-    if await _is_blocked(conn, user_id, str(target_id)):
+    if await _is_blocked(conn, user_id, target_id):
         raise HTTPException(status_code=404, detail="user not found")
 
     cursor = await conn.execute(
@@ -466,18 +466,18 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
         is_match = await cursor.fetchone() is not None
 
         if is_match:
-            await insert_notification(conn, str(target_id), user_id, "match")
-            await insert_notification(conn, user_id, str(target_id), "match")
+            await insert_notification(conn, target_id, user_id, "match")
+            await insert_notification(conn, user_id, target_id, "match")
             await _recalculate_fame(conn, user_id)
-            await _recalculate_fame(conn, str(target_id))
+            await _recalculate_fame(conn, target_id)
             await conn.commit()
-            await publish_notification(str(target_id), user_id, "match", redis)
-            await publish_notification(str(user_id), target_id, "match", redis)
+            await publish_notification(target_id, user_id, "match", redis)
+            await publish_notification(user_id, target_id, "match", redis)
         else:
-            await insert_notification(conn, str(target_id), user_id, "like")
-            await _recalculate_fame(conn, str(target_id))
+            await insert_notification(conn, target_id, user_id, "like")
+            await _recalculate_fame(conn, target_id)
             await conn.commit()
-            await publish_notification(str(target_id), user_id, "like", redis)
+            await publish_notification(target_id, user_id, "like", redis)
 
     except Exception:
         logger.exception("Like failed: user %s → target %s", user_id, target_id)
@@ -518,10 +518,10 @@ async def unlike_user(target_id: int, request: Request, redis: Redis = Depends(g
         if await cursor.fetchone() is None:
             raise HTTPException(status_code=404, detail="like not found")
 
-        await insert_notification(conn, str(target_id), user_id, "unlike")
-        await _recalculate_fame(conn, str(target_id))
+        await insert_notification(conn, target_id, user_id, "unlike")
+        await _recalculate_fame(conn, target_id)
         await conn.commit()
-        await publish_notification(str(target_id), user_id, "unlike", redis)
+        await publish_notification(target_id, user_id, "unlike", redis)
         await publish_unmatch(user_id, target_id, redis)
     except HTTPException:
         raise
@@ -558,7 +558,7 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    if str(target_id) == str(user_id):
+    if target_id == user_id:
         raise HTTPException(status_code=400, detail="cannot block yourself")
 
     cursor = await conn.execute(
@@ -577,8 +577,8 @@ async def block_user(target_id: int, request: Request, redis: Redis = Depends(ge
             (user_id, target_id, target_id, user_id)
         )
         # The deleted likes counted in both fame ratings (likes received, matches).
-        await _recalculate_fame(conn, str(user_id))
-        await _recalculate_fame(conn, str(target_id))
+        await _recalculate_fame(conn, user_id)
+        await _recalculate_fame(conn, target_id)
         await conn.commit()
         await publish_unmatch(user_id, target_id, redis)
     except Exception:
@@ -651,7 +651,7 @@ async def report_user(target_id: int, request: Request, redis: Redis = Depends(g
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    if str(target_id) == str(user_id):
+    if target_id == user_id:
         raise HTTPException(status_code=400, detail="cannot report yourself")
 
     body = await require_json(request)
