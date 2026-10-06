@@ -3,10 +3,13 @@ import re
 from fastapi import HTTPException
 
 # Limits mirror the column sizes in the migrations (users.email VARCHAR(100),
-# first_name/last_name VARCHAR(50), city VARCHAR(100), tags.name VARCHAR(50)),
-# so an oversized value is refused with a 400 instead of failing the INSERT.
+# first_name/last_name VARCHAR(50), username VARCHAR(30), city VARCHAR(100),
+# tags.name VARCHAR(50)), so an oversized value is refused with a 400 instead
+# of failing the INSERT.
 MAX_EMAIL = 100
 MAX_NAME = 50
+MIN_USERNAME = 3
+MAX_USERNAME = 30
 MAX_PASSWORD = 64
 MAX_CITY = 100
 MAX_BIO = 500
@@ -21,6 +24,9 @@ GENDERS = ("male", "female", "other")
 ORIENTATIONS = ("homo", "hetero", "bi")
 
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+# No "@" on purpose: login takes an email or a username in the same field and
+# tells them apart by that character.
+_USERNAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 # C0 controls and DEL. NUL is the one that matters most: PostgreSQL text
 # columns cannot hold it and psycopg raises on it, which used to surface as a 500.
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -102,6 +108,32 @@ def clean_email(value, field: str = "email") -> str:
     if not _EMAIL_RE.fullmatch(email):
         raise HTTPException(status_code=400, detail="Invalid email format")
     return email
+
+
+def clean_username(value, field: str = "username") -> str:
+    """Validate a username (length and characters).
+
+    Letters, digits, ``_``, ``.`` and ``-`` only, starting with a letter or a
+    digit. Uniqueness is the database's job (case-insensitive index).
+
+    Args:
+        value: The raw value.
+        field: Field name used in the error message.
+
+    Returns:
+        The stripped username, as typed (the case is kept).
+
+    Raises:
+        HTTPException: 400 if it is not a string of ``MIN_USERNAME`` to
+            ``MAX_USERNAME`` allowed characters.
+    """
+    username = clean_str(value, field, MAX_USERNAME, min_len=MIN_USERNAME)
+    if not _USERNAME_RE.fullmatch(username):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field} must start with a letter or a digit and only contain letters, digits, '_', '.' and '-'",
+        )
+    return username
 
 
 def clean_choice(value, field: str, allowed: tuple[str, ...]) -> str:

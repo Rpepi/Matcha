@@ -9,6 +9,7 @@ from app.cache.dependencies import get_redis
 from app.security.session import create_session
 from app.security.passwords import hash_password
 from app.security.rate_limiter.rate_limit import rate_limit
+from app.usernames import generate_username, is_username_conflict
 from app.log import get_logger
 import os
 import secrets
@@ -212,18 +213,22 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
             # via Google. verified=true directly since Google already
             # confirmed this email — no need to re-send our own verify email.
             password_hash = await hash_password(secrets.token_urlsafe(32))
+            # Google gives no username: derive one from the first name. The user
+            # can change it from their profile.
+            username = await generate_username(conn, first_name)
             try:
                 cursor = await conn.execute(
-                    "INSERT INTO users (email, first_name, last_name, password_hash, verified) "
-                    "VALUES (%s, %s, %s, %s, %s) RETURNING id, profile_complete",
-                    (email, first_name, last_name, password_hash, True),
+                    "INSERT INTO users (email, username, first_name, last_name, password_hash, verified) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, profile_complete",
+                    (email, username, first_name, last_name, password_hash, True),
                 )
             except UniqueViolation as e:
-                # Race condition: another request created this same email
-                # between our SELECT and this INSERT.
+                # Race condition: another request created this same email (or
+                # took this same username) between our SELECT and this INSERT.
                 logger.exception(f"Error: {e}")
                 await conn.rollback()
-                return RedirectResponse(f"{FRONTEND_URL}/login?error=email_already_taken")
+                error = "db_error" if is_username_conflict(e) else "email_already_taken"
+                return RedirectResponse(f"{FRONTEND_URL}/login?error={error}")
             row = await cursor.fetchone()
             user_id = row["id"]
             profile_complete = row["profile_complete"]

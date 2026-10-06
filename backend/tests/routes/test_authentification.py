@@ -27,6 +27,7 @@ def make_mock_conn(row=None):
 VALID_REGISTER_BODY = {
     "password": "Val1dP@ss!",
     "email": "alice@test.com",
+    "username": "alice_s",
     "first_name": "Alice",
     "last_name": "Smith",
 }
@@ -44,6 +45,41 @@ class TestAuthenticateUser:
 
         assert user_id == "7"
         assert profile_complete is True
+
+    async def test_username_is_looked_up_case_insensitively(self):
+        from app.routes.authentification import authenticate_user
+        row = make_db_row(user_id=7, password="Val1dP@ss!")
+        conn = make_mock_conn(row)
+
+        user_id, _ = await authenticate_user("Alice_S", "Val1dP@ss!", conn)
+
+        assert user_id == "7"
+        query, params = conn.execute.await_args.args
+        assert "lower(username) = lower(%s)" in query and "email" not in query
+        assert params == ("Alice_S",)
+
+    async def test_identifier_with_an_at_sign_is_looked_up_as_an_email(self):
+        from app.routes.authentification import authenticate_user
+        conn = make_mock_conn(make_db_row(password="Val1dP@ss!"))
+
+        await authenticate_user("alice@test.com", "Val1dP@ss!", conn)
+
+        query, params = conn.execute.await_args.args
+        assert "email = %s" in query and "username" not in query
+        assert params == ("alice@test.com",)
+
+    async def test_injection_attempt_is_only_ever_a_parameter(self):
+        from app.routes.authentification import authenticate_user
+        conn = make_mock_conn(row=None)
+        payload = "blabla' OR 1='1"
+
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user(payload, "x", conn)
+
+        assert exc_info.value.status_code == 401
+        query, params = conn.execute.await_args.args
+        assert payload not in query
+        assert params == (payload,)
 
     async def test_unknown_email_raises_401(self):
         from app.routes.authentification import authenticate_user
@@ -108,9 +144,7 @@ class TestLoginRoute:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["email"] == "alice@test.com"
-        assert "id" in data
-        assert "profile_complete" in data
+        assert data == {"id": "1", "profile_complete": False}
 
     async def test_successful_login_sets_session_cookie(self, client, mock_cursor):
         from app.security.passwords import ph
@@ -138,6 +172,56 @@ class TestLoginRoute:
             headers={"content-type": "application/json"},
         )
         assert resp.status_code == 400
+
+    async def test_login_with_a_username(self, client, mock_cursor):
+        from app.security.passwords import ph
+        mock_cursor.fetchone = AsyncMock(return_value={
+            "id": 1, "password_hash": ph.hash("Val1dP@ss!"),
+            "verified": True, "profile_complete": True,
+        })
+
+        resp = await client.post("/auth/login", json={"username": "alice_s", "password": "Val1dP@ss!"})
+
+        assert resp.status_code == 200
+        assert resp.json()["profile_complete"] is True
+        assert "session" in resp.cookies
+
+    async def test_username_field_may_hold_an_email(self, client, mock_cursor, mock_db):
+        from app.security.passwords import ph
+        mock_cursor.fetchone = AsyncMock(return_value={
+            "id": 1, "password_hash": ph.hash("Val1dP@ss!"),
+            "verified": True, "profile_complete": False,
+        })
+
+        resp = await client.post("/auth/login", json={"username": "alice@test.com", "password": "Val1dP@ss!"})
+
+        assert resp.status_code == 200
+        assert "email = %s" in mock_db.execute.await_args.args[0]
+
+    async def test_username_wins_over_the_legacy_email_key(self, client, mock_cursor, mock_db):
+        mock_cursor.fetchone = AsyncMock(return_value=None)
+
+        await client.post("/auth/login", json={"username": "alice_s", "email": "other@test.com", "password": "x"})
+
+        assert mock_db.execute.await_args.args[1] == ("alice_s",)
+
+    @pytest.mark.parametrize("identifier", [None, 5, "", "   ", ["a"], "a" * 101])
+    async def test_bad_username_returns_400(self, client, identifier):
+        resp = await client.post("/auth/login", json={"username": identifier, "password": "Val1dP@ss!"})
+        assert resp.status_code == 400
+
+    async def test_wrong_username_and_wrong_password_give_the_same_answer(self, client, mock_cursor):
+        from app.security.passwords import ph
+        mock_cursor.fetchone = AsyncMock(return_value=None)
+        unknown = await client.post("/auth/login", json={"username": "ghost", "password": "anything"})
+        mock_cursor.fetchone = AsyncMock(return_value={
+            "id": 1, "password_hash": ph.hash("correct_password"),
+            "verified": True, "profile_complete": False,
+        })
+        wrong = await client.post("/auth/login", json={"username": "alice_s", "password": "wrong_password"})
+
+        assert unknown.status_code == wrong.status_code == 401
+        assert unknown.json() == wrong.json()
 
     async def test_missing_email_returns_400(self, client):
         resp = await client.post("/auth/login", json={"password": "Val1dP@ss!"})
@@ -217,7 +301,7 @@ class TestRegisterRoute:
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("missing_field", [
-        "password", "email", "first_name", "last_name"
+        "password", "email", "username", "first_name", "last_name"
     ])
     async def test_missing_required_field_returns_400(self, client, missing_field):
         body = {k: v for k, v in VALID_REGISTER_BODY.items() if k != missing_field}
@@ -228,6 +312,51 @@ class TestRegisterRoute:
         body = {**VALID_REGISTER_BODY, "first_name": 123}
         resp = await client.post("/auth/register", json=body)
         assert resp.status_code == 400
+
+    @pytest.mark.parametrize("username", [
+        "ab", "a" * 31, "has space", "ali@ce", "-alice", ".alice", "_alice",
+        "alice!", "ali/ce", "alicé", "<script>", "a\nb", 123, None, ["a"],
+    ])
+    async def test_invalid_username_returns_400_and_never_hits_the_db(self, client, mock_db, username):
+        resp = await client.post("/auth/register", json={**VALID_REGISTER_BODY, "username": username})
+        assert resp.status_code == 400
+        mock_db.execute.assert_not_called()
+
+    @pytest.mark.parametrize("username", ["abc", "Alice", "alice.smith", "alice-s_2", "a" * 30, "9lives"])
+    async def test_valid_usernames_are_accepted(self, client, mock_cursor, username):
+        mock_cursor.fetchone = AsyncMock(return_value={"id": 42})
+        with patch("app.routes.authentification.send_verification_email"):
+            resp = await client.post("/auth/register", json={**VALID_REGISTER_BODY, "username": username})
+        assert resp.status_code == 200
+
+    async def test_username_is_stored_with_the_account(self, client, mock_cursor, mock_db):
+        mock_cursor.fetchone = AsyncMock(return_value={"id": 42})
+        with patch("app.routes.authentification.send_verification_email"):
+            await client.post("/auth/register", json={**VALID_REGISTER_BODY, "username": "  Alice_S  "})
+
+        query, params = mock_db.execute.await_args.args
+        assert "username" in query
+        assert "Alice_S" in params  # stripped, case kept
+
+    async def test_taken_username_returns_409_with_its_own_message(self, client, mock_db):
+        from psycopg.errors import UniqueViolation
+        mock_db.execute = AsyncMock(side_effect=UniqueViolation("duplicate key"))
+
+        with patch("app.routes.authentification.is_username_conflict", return_value=True):
+            resp = await client.post("/auth/register", json=VALID_REGISTER_BODY)
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Username already taken"
+
+    async def test_taken_email_still_returns_409_email_message(self, client, mock_db):
+        from psycopg.errors import UniqueViolation
+        mock_db.execute = AsyncMock(side_effect=UniqueViolation("duplicate key"))
+
+        resp = await client.post("/auth/register", json=VALID_REGISTER_BODY)
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Email already taken"
+        mock_db.rollback.assert_awaited_once()
 
 
 # ── /auth/verify ──────────────────────────────────────────────────────────────

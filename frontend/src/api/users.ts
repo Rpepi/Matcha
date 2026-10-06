@@ -6,6 +6,7 @@ export interface UserPhoto {
 
 export interface UserProfileDetail {
     id: number;
+    username: string;
     first_name: string;
     last_name: string;
     gender: string | null;
