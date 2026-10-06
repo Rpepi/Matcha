@@ -41,7 +41,7 @@ docker compose down -v
 1. **Register** with an email, a username, your names and a password. Common passwords are refused.
 2. Open **Mailpit** (http://localhost:8025) and click the verification link. The account cannot log in before that.
 3. **Log in** with your username (or your email), then complete your profile: gender, orientation, bio, interests, birth date, photos (a profile picture is required to like someone) and location.
-4. The seeded profiles are spread around a few French cities. Their passwords are random: to see a match, a chat or notifications, register a second account (use a private window).
+4. The seeded profiles are spread around a few Thai cities (Bangkok, Chiang Mai, Phuket…). Their passwords are random: to see a match, a chat or notifications, register a second account (use a private window).
 
 ### Servers
 

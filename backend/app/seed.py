@@ -46,17 +46,19 @@ TAGS = [
 
 # Seeded users live around a few cities instead of anywhere on Earth, so that
 # "same geographic area" means something: most people have neighbours within a
-# few dozen km, and the other cities are a believable distance away. Paris gets
-# the biggest share, like a real user base would.
+# few dozen km, and the other cities are a believable distance away (Bangkok is
+# about 100 km from Pattaya and 580 km from Chiang Mai). Bangkok gets the biggest
+# share, like a real user base would.
+# Each entry: name, latitude, longitude, relative weight.
 CITIES = [
-    ("Paris", 48.8566, 2.3522, 40),
-    ("Lyon", 45.7640, 4.8357, 15),
-    ("Marseille", 43.2965, 5.3698, 12),
-    ("Lille", 50.6292, 3.0573, 8),
-    ("Toulouse", 43.6047, 1.4442, 8),
-    ("Bordeaux", 44.8378, -0.5792, 7),
-    ("Nantes", 47.2184, -1.5536, 6),
-    ("Strasbourg", 48.5734, 7.7521, 4),
+    ("Bangkok", 13.7563, 100.5018, 40),
+    ("Chiang Mai", 18.7883, 98.9853, 15),
+    ("Phuket", 7.8804, 98.3923, 12),
+    ("Pattaya", 12.9236, 100.8825, 8),
+    ("Khon Kaen", 16.4419, 102.8360, 8),
+    ("Hat Yai", 7.0086, 100.4747, 7),
+    ("Nakhon Ratchasima", 14.9799, 102.0977, 6),
+    ("Chiang Rai", 19.9105, 99.8406, 4),
 ]
 CITY_SPREAD_DEGREES = 0.15  # about 17 km around the centre
 LAST_SEEN_WITHIN_DAYS = 30
