@@ -1,4 +1,5 @@
 from faker import Faker
+from datetime import datetime, timedelta, timezone
 import random
 import re
 import os
@@ -43,6 +44,23 @@ TAGS = [
 ]
 
 
+# Seeded users live around a few cities instead of anywhere on Earth, so that
+# "same geographic area" means something: most people have neighbours within a
+# few dozen km, and the other cities are a believable distance away. Paris gets
+# the biggest share, like a real user base would.
+CITIES = [
+    ("Paris", 48.8566, 2.3522, 40),
+    ("Lyon", 45.7640, 4.8357, 15),
+    ("Marseille", 43.2965, 5.3698, 12),
+    ("Lille", 50.6292, 3.0573, 8),
+    ("Toulouse", 43.6047, 1.4442, 8),
+    ("Bordeaux", 44.8378, -0.5792, 7),
+    ("Nantes", 47.2184, -1.5536, 6),
+    ("Strasbourg", 48.5734, 7.7521, 4),
+]
+CITY_SPREAD_DEGREES = 0.15  # about 17 km around the centre
+LAST_SEEN_WITHIN_DAYS = 30
+
 _NOT_USERNAME_RE = re.compile(r"[^a-z0-9.]")
 
 
@@ -67,13 +85,18 @@ def generate_user() -> dict:
     """Generate the data of one random fake user.
 
     Returns:
-        A mapping of ``users`` column to value: unique email, username and names, a
-        hashed random password, a birth date (18 to 60 years old), bio,
-        gender, orientation and coordinates. ``profile_complete`` and
-        ``verified`` are already True.
+        A mapping of ``users`` column to value: unique email, username and
+        names, a hashed random password, a birth date (18 to 60 years old),
+        bio, gender, orientation, a city with coordinates near it, and when
+        the user was last seen (within the last 30 days, offline).
+        ``profile_complete`` and ``verified`` are already True.
     """
     first_name = fake.unique.first_name()
     last_name = fake.unique.last_name()
+    city, latitude, longitude, _ = random.choices(CITIES, weights=[c[3] for c in CITIES])[0]
+    last_seen = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        minutes=random.randint(5, LAST_SEEN_WITHIN_DAYS * 24 * 60)
+    )
     user = {
             "email": fake.unique.email(),
             "username": make_username(first_name, last_name),
@@ -84,8 +107,10 @@ def generate_user() -> dict:
             "bio": fake.unique.text(max_nb_chars=200),
             "gender": random.choice(["male", "female", "other"]),
             "orientation": random.choice(["hetero", "homo", "bi"]),
-            "latitude": fake.unique.latitude(),
-            "longitude": fake.unique.longitude(),
+            "city": city,
+            "latitude": latitude + random.uniform(-CITY_SPREAD_DEGREES, CITY_SPREAD_DEGREES),
+            "longitude": longitude + random.uniform(-CITY_SPREAD_DEGREES, CITY_SPREAD_DEGREES),
+            "last_seen": last_seen,
             "profile_complete": True,
             "verified": True
         }

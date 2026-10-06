@@ -2,7 +2,8 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock, patch, call
 from psycopg import errors as psycopg_errors
-from app.seed import generate_user, make_username, TAGS
+from datetime import datetime, timedelta, timezone
+from app.seed import fake, generate_user, make_username, TAGS, CITIES, CITY_SPREAD_DEGREES, LAST_SEEN_WITHIN_DAYS
 from app.validation import clean_username
 
 
@@ -10,9 +11,19 @@ REQUIRED_KEYS = {
     "email", "username", "first_name", "last_name",
     "password_hash", "birth_date", "bio",
     "gender", "orientation",
-    "latitude", "longitude",
+    "city", "latitude", "longitude", "last_seen",
     "profile_complete", "verified",
 }
+
+@pytest.fixture(autouse=True)
+def fresh_unique_values():
+    """Faker's ``unique`` remembers every value for the life of the process and
+    has a few hundred first names: a seed run uses 500 of them, so each test
+    starts over instead of exhausting the pool together with the others."""
+    fake.unique.clear()
+    yield
+    fake.unique.clear()
+
 
 VALID_GENDERS = {"male", "female", "other"}
 VALID_ORIENTATIONS = {"hetero", "homo", "bi"}
@@ -93,6 +104,40 @@ class TestMakeUsername:
     def test_never_starts_with_a_dot(self):
         assert not make_username("!!!", "Cox").startswith(".")
 
+
+class TestSeededPlaces:
+    @pytest.fixture(autouse=True)
+    def cheap_hash(self):
+        # These tests draw hundreds of users and look at places, not at passwords.
+        with patch("app.seed.ph", MagicMock(hash=MagicMock(return_value="$argon2id$fake"))):
+            yield
+
+    def test_user_lives_around_one_of_the_cities(self):
+        for _ in range(100):
+            user = generate_user()
+            matches = [c for c in CITIES if c[0] == user["city"]]
+            assert len(matches) == 1
+            _, lat, lon, _ = matches[0]
+            assert abs(user["latitude"] - lat) <= CITY_SPREAD_DEGREES
+            assert abs(user["longitude"] - lon) <= CITY_SPREAD_DEGREES
+
+    def test_every_city_gets_used_and_the_biggest_one_most(self):
+        counts = {}
+        for _ in range(400):
+            city = generate_user()["city"]
+            counts[city] = counts.get(city, 0) + 1
+        assert set(counts) == {c[0] for c in CITIES}
+        assert counts["Paris"] == max(counts.values())
+
+    def test_last_seen_is_in_the_past_30_days(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for _ in range(50):
+            seen = generate_user()["last_seen"]
+            assert now - timedelta(days=LAST_SEEN_WITHIN_DAYS, minutes=1) <= seen <= now
+
+    def test_seeded_users_are_offline(self):
+        # is_online is left to its default (false): the server resets it at each start anyway.
+        assert "is_online" not in generate_user()
 
 
 # ── seed() function ───────────────────────────────────────────────────────────
