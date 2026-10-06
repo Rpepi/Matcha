@@ -18,7 +18,6 @@ export default function ProfileActions({ profile }: { profile: UserProfileDetail
         profile.id,
         profile.first_name,
         { liked: profile.is_liked_by_me, match: profile.is_match },
-        profile.photos.some((photo) => photo.is_profile),
     );
 
     return (

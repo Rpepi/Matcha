@@ -7,12 +7,10 @@ import LikeButton from "./LikeButton";
 import PhotoFallback from "./PhotoFallback";
 
 export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
-    // `photo_position` is null exactly when the user has no profile picture, which the server refuses to like.
     const { liked, isPending, canLike, toggle } = useLike(
         profile.id,
         profile.first_name,
         { liked: profile.is_liked_by_me, match: false },
-        profile.photo_position !== null,
     );
 
     const [failedSrc, setFailedSrc] = useState<string | null>(null);

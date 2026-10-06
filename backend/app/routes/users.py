@@ -408,7 +408,9 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
 async def like_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Like a user, creating a match if the like is reciprocated.
 
-    Liking again is harmless and returns "already liked". A new like
+    The current user needs a profile picture of their own to like anyone (the
+    person being liked does not). Liking again is harmless and returns
+    "already liked". A new like
     notifies the target with "like", or both users with "match" when the
     target already liked back. Fame ratings are recalculated in the same
     transaction.
@@ -424,8 +426,9 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
 
     Raises:
         HTTPException: 400 if ``target_id`` is the current user; 401 if not
-            authenticated; 404 if the user does not exist, a block exists,
-            or the target has no profile picture; 500 if the like fails.
+            authenticated; 403 if the current user has no profile picture;
+            404 if the user does not exist or a block exists; 500 if the
+            like fails.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -441,13 +444,14 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
     if await cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="user not found")
     
+    # The liker needs a profile picture, not the person being liked.
     photo_cursor = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM photos WHERE user_id = %s AND is_profile = true)", (target_id,)
+        "SELECT EXISTS (SELECT 1 FROM photos WHERE user_id = %s AND is_profile = true)", (user_id,)
     )
     has_profile_picture = await photo_cursor.fetchone()
 
     if not has_profile_picture["exists"]:
-        raise HTTPException(status_code=404, detail="can't like a user who doesn't have a profile picture")
+        raise HTTPException(status_code=403, detail="you need a profile picture to like other users")
 
     try:
         cursor = await conn.execute(
