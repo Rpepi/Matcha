@@ -14,9 +14,10 @@ from app.security.token import generate_verification_token, send_verification_em
 from app.security.rate_limiter.rate_limit import rate_limit
 from app.utils import require_json, is_valid_image, process_photo
 from app.validation import (
-    clean_str, clean_email, clean_choice, clean_int, clean_float,
+    clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
     GENDERS, ORIENTATIONS, MAX_NAME, MAX_BIO, MAX_CITY, MAX_TAG, MAX_SEARCH,
 )
+from app.usernames import is_username_conflict
 from app.log import get_logger
 
 logger = get_logger(__name__)
@@ -61,7 +62,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
-        SELECT id, email, first_name, last_name,
+        SELECT id, email, username, first_name, last_name,
         gender, orientation, bio, birth_date, fame_rating,
         latitude, longitude, city, is_online, last_seen,
         profile_complete, created_at FROM users WHERE id = %s
@@ -94,8 +95,9 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
 
     Expects a JSON body with any of ``bio`` (max 500 characters, or null),
     ``orientation`` (``homo``, ``hetero`` or ``bi``), ``city`` (max 100, or
-    null), ``first_name``, ``last_name`` (max 50 characters), ``email``
-    (max 100, well-formed), ``gender`` (``male``, ``female`` or ``other``),
+    null), ``username`` (3 to 30 letters, digits, ``_``, ``.`` or ``-``,
+    unique whatever the case), ``first_name``, ``last_name`` (max 50
+    characters), ``email`` (max 100, well-formed), ``gender`` (``male``, ``female`` or ``other``),
     ``birth_date`` (YYYY-MM-DD, at least 16 years old) and ``tags``
     (existing tag names, max 5; duplicates are merged). Strings may not
     contain control characters (newlines are allowed in ``bio``). The
@@ -119,13 +121,13 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     Raises:
         HTTPException: 400 if no field is given, a value is invalid or too
             long, or the body is not a JSON object; 401 if not
-            authenticated; 409 if the email is already taken; 413 if the
-            body is too large; 500 if the update fails.
+            authenticated; 409 if the email or the username is already
+            taken; 413 if the body is too large; 500 if the update fails.
     """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
-    updatable_fields = ["bio", "orientation", "city", "first_name", "last_name", "email", "gender", "birth_date"]
+    updatable_fields = ["bio", "orientation", "city", "username", "first_name", "last_name", "email", "gender", "birth_date"]
     tags = body.get("tags")
     updates = {k: body[k] for k in updatable_fields if k in body}
 
@@ -137,6 +139,8 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             updates[field] = clean_str(updates[field], field, MAX_NAME)
     if "email" in updates:
         updates["email"] = clean_email(updates["email"])
+    if "username" in updates:
+        updates["username"] = clean_username(updates["username"])
     if "gender" in updates:
         updates["gender"] = clean_choice(updates["gender"], "gender", GENDERS)
     if "orientation" in updates:
@@ -197,8 +201,8 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         await conn.commit()
     except HTTPException:
         raise
-    except UniqueViolation:
-        raise HTTPException(status_code=409, detail="Email already taken")
+    except UniqueViolation as e:
+        raise HTTPException(status_code=409, detail="Username already taken" if is_username_conflict(e) else "Email already taken")
     except Exception:
         logger.exception("Failed to update profile for user %s", user_id)
         raise HTTPException(status_code=500, detail="failed to update profile")

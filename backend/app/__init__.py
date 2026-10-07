@@ -7,7 +7,8 @@ from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutErr
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.pool import open_pool, close_pool
-from app.log import setup_logging
+from app.log import setup_logging, get_logger
+from app.presence import reset_presence
 from app.routes.authentification import router as authentification_router
 from app.routes.profile import router as profile_router
 from app.routes.users import router as users_router
@@ -15,6 +16,8 @@ from app.routes.chat import router as chat_router
 from app.routes.notifications import router as notifications_router
 from app.routes.oauth import router as oauth_router
 from pathlib import Path
+
+logger = get_logger(__name__)
 
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 if not REDIS_PASSWORD:
@@ -28,8 +31,9 @@ async def lifespan(app: FastAPI):
     """Manage the resources shared by the whole application.
 
     Opens the PostgreSQL connection pool and creates the Redis client
-    (stored on ``app.state.redis``) before the app starts serving, then
-    closes both on shutdown.
+    (stored on ``app.state.redis``) before the app starts serving, forgets
+    the open notification streams of the previous run (see ``app.presence``),
+    then closes both on shutdown.
 
     Args:
         app: The FastAPI application whose state receives the Redis client.
@@ -47,6 +51,10 @@ async def lifespan(app: FastAPI):
         retry=retry
     )
     app.state.rate_limit_script = app.state.redis.register_script(lua)
+    try:
+        await reset_presence(app.state.redis)
+    except Exception:
+        logger.exception("Could not reset the presence state")
     yield
     await close_pool()
     await app.state.redis.aclose()

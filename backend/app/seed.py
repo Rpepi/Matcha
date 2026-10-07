@@ -1,5 +1,7 @@
 from faker import Faker
+from datetime import datetime, timedelta, timezone
 import random
+import re
 import os
 from argon2 import PasswordHasher
 import psycopg
@@ -42,26 +44,75 @@ TAGS = [
 ]
 
 
+# Seeded users live around a few cities instead of anywhere on Earth, so that
+# "same geographic area" means something: most people have neighbours within a
+# few dozen km, and the other cities are a believable distance away (Bangkok is
+# about 100 km from Pattaya and 580 km from Chiang Mai). Bangkok gets the biggest
+# share, like a real user base would.
+# Each entry: name, latitude, longitude, relative weight.
+CITIES = [
+    ("Bangkok", 13.7563, 100.5018, 40),
+    ("Chiang Mai", 18.7883, 98.9853, 15),
+    ("Phuket", 7.8804, 98.3923, 12),
+    ("Pattaya", 12.9236, 100.8825, 8),
+    ("Khon Kaen", 16.4419, 102.8360, 8),
+    ("Hat Yai", 7.0086, 100.4747, 7),
+    ("Nakhon Ratchasima", 14.9799, 102.0977, 6),
+    ("Chiang Rai", 19.9105, 99.8406, 4),
+]
+CITY_SPREAD_DEGREES = 0.15  # about 17 km around the centre
+LAST_SEEN_WITHIN_DAYS = 30
+
+_NOT_USERNAME_RE = re.compile(r"[^a-z0-9.]")
+
+
+def make_username(first_name: str, last_name: str) -> str:
+    """Build a username like ``eileen.cox`` from a name.
+
+    Only lowercase letters, digits and dots are kept (the rules of
+    ``app.validation.clean_username``), cut to the 30 characters of the column.
+    The seed's first names are unique, which makes the usernames unique.
+
+    Args:
+        first_name: First name of the user.
+        last_name: Last name of the user.
+
+    Returns:
+        The username.
+    """
+    return _NOT_USERNAME_RE.sub("", f"{first_name}.{last_name}".lower()).lstrip(".")[:30]
+
+
 def generate_user() -> dict:
     """Generate the data of one random fake user.
 
     Returns:
-        A mapping of ``users`` column to value: unique email and names, a
-        hashed random password, a birth date (18 to 60 years old), bio,
-        gender, orientation and coordinates. ``profile_complete`` and
-        ``verified`` are already True.
+        A mapping of ``users`` column to value: unique email, username and
+        names, a hashed random password, a birth date (18 to 60 years old),
+        bio, gender, orientation, a city with coordinates near it, and when
+        the user was last seen (within the last 30 days, offline).
+        ``profile_complete`` and ``verified`` are already True.
     """
+    first_name = fake.unique.first_name()
+    last_name = fake.unique.last_name()
+    city, latitude, longitude, _ = random.choices(CITIES, weights=[c[3] for c in CITIES])[0]
+    last_seen = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        minutes=random.randint(5, LAST_SEEN_WITHIN_DAYS * 24 * 60)
+    )
     user = {
             "email": fake.unique.email(),
-            "first_name": fake.unique.first_name(),
-            "last_name": fake.unique.last_name(),
+            "username": make_username(first_name, last_name),
+            "first_name": first_name,
+            "last_name": last_name,
             "password_hash": ph.hash(fake.unique.password()),
             "birth_date": fake.unique.date_of_birth(minimum_age=18, maximum_age=60),
             "bio": fake.unique.text(max_nb_chars=200),
             "gender": random.choice(["male", "female", "other"]),
             "orientation": random.choice(["hetero", "homo", "bi"]),
-            "latitude": fake.unique.latitude(),
-            "longitude": fake.unique.longitude(),
+            "city": city,
+            "latitude": latitude + random.uniform(-CITY_SPREAD_DEGREES, CITY_SPREAD_DEGREES),
+            "longitude": longitude + random.uniform(-CITY_SPREAD_DEGREES, CITY_SPREAD_DEGREES),
+            "last_seen": last_seen,
             "profile_complete": True,
             "verified": True
         }

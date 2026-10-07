@@ -1,4 +1,4 @@
-import { DEFAULT_FILTERS, type BrowseFilters } from "../lib/browseFilters";
+import { DEFAULT_FILTERS, SORT_OPTIONS, type BrowseFilters } from "../lib/browseFilters";
 
 export interface BrowseProfile {
     id: number;
@@ -26,7 +26,12 @@ export async function getBrowseProfiles(page: number, filters: BrowseFilters = D
     if (filters.maxAge !== DEFAULT_FILTERS.maxAge) params.set('max_age', String(filters.maxAge));
     if (filters.maxDistance !== DEFAULT_FILTERS.maxDistance) params.set('max_distance', String(filters.maxDistance));
     if (filters.minFame !== DEFAULT_FILTERS.minFame) params.set('min_fame', String(filters.minFame));
+    if (filters.maxFame !== DEFAULT_FILTERS.maxFame) params.set('max_fame', String(filters.maxFame));
     if (filters.minTags !== DEFAULT_FILTERS.minTags) params.set('min_tags', String(filters.minTags));
+    if (filters.tags.length > 0) params.set('tags', filters.tags.join(','));
+    // The API picks each sort's usual direction when `order` is absent: only say what differs.
+    if (filters.sort !== DEFAULT_FILTERS.sort) params.set('sort', filters.sort);
+    if (filters.order !== SORT_OPTIONS[filters.sort].defaultOrder) params.set('order', filters.order);
 
     const response = await fetch(`/api/users?${params.toString()}`, {
         credentials: 'include',

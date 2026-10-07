@@ -82,8 +82,11 @@ def mock_redis():
 
 @pytest.fixture
 def chat_app(mock_redis):
+    # lifespan() also forgets the previous run's online users (app/presence.py,
+    # tested on its own); here that would only run against the Redis mock.
     with patch("app.open_pool", new_callable=AsyncMock), \
          patch("app.close_pool", new_callable=AsyncMock), \
+         patch("app.reset_presence", new_callable=AsyncMock), \
          patch("redis.asyncio.Redis", return_value=mock_redis):
         from app import create_app
         yield create_app()

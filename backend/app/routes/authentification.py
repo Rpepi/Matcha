@@ -12,7 +12,8 @@ from app.security.session import create_session
 from app.security.passwords import hash_password, verify_password, ph, is_password_valid
 from app.security.token import generate_verification_token, send_verification_email, send_reset_email, serializer
 from app.utils import require_json
-from app.validation import clean_str, clean_email, MAX_EMAIL, MAX_NAME, MAX_PASSWORD, MAX_TOKEN
+from app.validation import clean_str, clean_email, clean_username, MAX_EMAIL, MAX_NAME, MAX_PASSWORD, MAX_TOKEN
+from app.usernames import is_username_conflict
 from app.log import get_logger
 from app.security.session import get_current_user_id
 from app.security.rate_limiter.rate_limit import rate_limit
@@ -26,15 +27,16 @@ router = APIRouter()
 DUMMY_HASH = ph.hash("dummy")
 
 
-async def authenticate_user(email: str, password: str, conn: AsyncConnection) -> tuple:
-    """Verify an email/password pair and return the user's identity.
+async def authenticate_user(identifier: str, password: str, conn: AsyncConnection) -> tuple:
+    """Verify a username-or-email / password pair and return the user's identity.
 
-    A password verification is always performed, against a dummy hash when
-    the email is unknown, so response time does not reveal whether an
-    account exists.
+    A username never contains ``@`` and an email always does, so the one
+    field can hold either without any ambiguity. A password verification is
+    always performed, against a dummy hash when the account is unknown, so
+    response time does not reveal whether an account exists.
 
     Args:
-        email: Email address submitted at login.
+        identifier: Username (case-insensitive) or email address submitted at login.
         password: Plaintext password submitted at login.
         conn: Database connection.
 
@@ -42,17 +44,20 @@ async def authenticate_user(email: str, password: str, conn: AsyncConnection) ->
         A tuple ``(user_id, profile_complete)`` with the id as a string.
 
     Raises:
-        HTTPException: 401 if the email is unknown or the password is wrong;
+        HTTPException: 401 if the account is unknown or the password is wrong;
             403 if the email address is not verified yet.
     """
-    cursor = await conn.execute(
-        "SELECT id, password_hash, verified, profile_complete FROM users WHERE email = %s", (email,)
-    )
+    # Two fixed queries: the identifier is only ever a parameter, never SQL.
+    if "@" in identifier:
+        query = "SELECT id, password_hash, verified, profile_complete FROM users WHERE email = %s"
+    else:
+        query = "SELECT id, password_hash, verified, profile_complete FROM users WHERE lower(username) = lower(%s)"
+    cursor = await conn.execute(query, (identifier,))
     row = await cursor.fetchone()
     hash_to_check = row["password_hash"] if row else DUMMY_HASH  #cannot now if an account exist mesuring the execution time.
     password_ok = await verify_password(hash_to_check, password)
     if row is None or not password_ok:
-        logger.warning("Failed login attempt for email '%s'", email)
+        logger.warning("Failed login attempt for '%s'", identifier)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not row["verified"]:
         raise HTTPException(status_code=403, detail="Email not verified")
@@ -63,8 +68,10 @@ async def authenticate_user(email: str, password: str, conn: AsyncConnection) ->
 async def login(request: Request, response: Response, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Log a user in and open a session.
 
-    Expects a JSON body ``{"email": str, "password": str}``. On success the
-    session cookie is set on the response.
+    Expects a JSON body ``{"username": str, "password": str}``. ``username``
+    may also hold the account's email address, and a body that still uses the
+    older ``email`` key is accepted. On success the session cookie is set on
+    the response.
 
     Args:
         request: Incoming request with the JSON body.
@@ -73,7 +80,7 @@ async def login(request: Request, response: Response, redis: redis.Redis = Depen
         conn: Database connection (injected dependency).
 
     Returns:
-        A dict with the user's ``id``, ``email`` and ``profile_complete``.
+        A dict with the user's ``id`` and ``profile_complete``.
 
     Raises:
         HTTPException: 400 if a field is missing, empty, not a string, too
@@ -85,14 +92,13 @@ async def login(request: Request, response: Response, redis: redis.Redis = Depen
 
     body = await require_json(request) # will raise exception if not json format
 
-    email = clean_str(body.get("email"), "email", MAX_EMAIL)
+    identifier = clean_str(body["username"] if "username" in body else body.get("email"), "username", MAX_EMAIL)
     password = clean_str(body.get("password"), "password", MAX_PASSWORD, strip=False)
-    user_id, profile_complete = await authenticate_user(email, password, conn)
+    user_id, profile_complete = await authenticate_user(identifier, password, conn)
     await create_session(response, user_id, redis)
     logger.info("User %s logged in", user_id)
     return {
         "id": user_id,
-        "email": email,
         "profile_complete": profile_complete,
     }
 
@@ -233,9 +239,10 @@ async def reset_password(request: Request, redis: redis.Redis = Depends(get_redi
 async def register(request: Request, response: Response, conn: AsyncConnection = Depends(get_db)):
     """Create an account and send the verification email.
 
-    Expects a JSON body with ``email``, ``password``, ``first_name`` and
-    ``last_name``. The password is hashed with Argon2id and the account is
-    created unverified.
+    Expects a JSON body with ``email``, ``username``, ``password``,
+    ``first_name`` and ``last_name``. The username is 3 to 30 letters,
+    digits, ``_``, ``.`` or ``-`` and unique whatever the case. The password
+    is hashed with Argon2id and the account is created unverified.
 
     Args:
         request: Incoming request with the JSON body.
@@ -247,9 +254,10 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
 
     Raises:
         HTTPException: 400 if a field is missing, empty, not a string, too
-            long (email 100 characters, names 50, password 128) or contains
-            control characters, the email format is invalid, or the password
-            is too weak; 409 if the email is already taken.
+            long (email 100 characters, username 30, names 50, password 64)
+            or contains control characters, the email or username format is
+            invalid, or the password is too weak; 409 if the email or the
+            username is already taken.
         Exception: If the verification email cannot be sent. The account
             has already been created at that point.
     """
@@ -258,6 +266,7 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
 
     # Everything is validated before the (expensive) password hash is computed.
     email = clean_email(body.get("email"))
+    username = clean_username(body.get("username"))
     first_name = clean_str(body.get("first_name"), "first_name", MAX_NAME)
     last_name = clean_str(body.get("last_name"), "last_name", MAX_NAME)
     password = clean_str(body.get("password"), "password", MAX_PASSWORD, strip=False)
@@ -266,6 +275,7 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
 
     fields = {
         "email": email,
+        "username": username,
         "first_name": first_name,
         "last_name": last_name,
         "password_hash": await hash_password(password),
@@ -275,12 +285,13 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
     placeholders = ", ".join(["%s"] * len(fields))
     try:
         cursor = await conn.execute(f"INSERT INTO users ({columns}) VALUES ({placeholders}) RETURNING id", list(fields.values()))
-    except UniqueViolation:
-        raise HTTPException(status_code=409, detail="Email already taken")
+    except UniqueViolation as e:
+        await conn.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken" if is_username_conflict(e) else "Email already taken")
     row = await cursor.fetchone()
     user_id = row["id"]
     await conn.commit()
-    logger.info("New account registered: email='%s' id=%s", email, user_id)
+    logger.info("New account registered: email='%s' username='%s' id=%s", email, username, user_id)
     token = generate_verification_token(str(user_id), email)
     await asyncio.to_thread(send_verification_email, email, token)
     return {"message": "Account created. Check your email to verify your account."}

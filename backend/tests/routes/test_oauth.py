@@ -161,11 +161,17 @@ class TestOauthCallbackEarlyFailures:
 
 
 class TestOauthCallbackNewUser:
-    async def test_creates_account_and_redirects_to_complete_profile(self, client, mock_db, mock_redis):
-        mock_db.execute = AsyncMock(side_effect=[
+    @staticmethod
+    def new_user_queries(*, insert=None):
+        """The DB calls for a first Google sign-in, in order."""
+        return [
             make_cursor(fetchone=None),  # SELECT: no existing user
-            make_cursor(fetchone={"id": 7, "profile_complete": False}),  # INSERT ... RETURNING
-        ])
+            make_cursor(fetchone=None),  # SELECT: the generated username is free
+            insert if insert is not None else make_cursor(fetchone={"id": 7, "profile_complete": False}),  # INSERT ... RETURNING
+        ]
+
+    async def test_creates_account_and_redirects_to_complete_profile(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
 
         resp = await do_callback(client, mock_redis)
 
@@ -173,23 +179,41 @@ class TestOauthCallbackNewUser:
         assert "/complete-profile" in resp.headers["location"]
 
     async def test_insert_marks_account_verified(self, client, mock_db, mock_redis):
-        mock_db.execute = AsyncMock(side_effect=[
-            make_cursor(fetchone=None),
-            make_cursor(fetchone={"id": 7, "profile_complete": False}),
-        ])
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
 
         await do_callback(client, mock_redis)
 
-        insert_call = mock_db.execute.call_args_list[1]
+        insert_call = mock_db.execute.call_args_list[2]
         query, params = insert_call.args
         assert "INSERT INTO users" in query
         assert params[-1] is True  # verified
 
-    async def test_commits_after_insert(self, client, mock_db, mock_redis):
+    async def test_new_account_gets_a_username_derived_from_the_first_name(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
+
+        await do_callback(client, mock_redis)
+
+        query, params = mock_db.execute.call_args_list[2].args
+        assert "username" in query
+        assert params[1].startswith("alice") and params[1][len("alice"):].isdigit()
+
+    async def test_taken_username_is_not_reused(self, client, mock_db, mock_redis):
         mock_db.execute = AsyncMock(side_effect=[
-            make_cursor(fetchone=None),
+            make_cursor(fetchone=None),            # no existing user
+            make_cursor(fetchone={"?column?": 1}), # first candidate is taken
+            make_cursor(fetchone=None),            # second one is free
             make_cursor(fetchone={"id": 7, "profile_complete": False}),
         ])
+
+        resp = await do_callback(client, mock_redis)
+
+        assert "/complete-profile" in resp.headers["location"]
+        taken = mock_db.execute.call_args_list[1].args[1][0]
+        chosen = mock_db.execute.call_args_list[3].args[1][1]
+        assert chosen != taken
+
+    async def test_commits_after_insert(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
 
         await do_callback(client, mock_redis)
 
@@ -197,6 +221,7 @@ class TestOauthCallbackNewUser:
 
     async def test_race_condition_on_insert_redirects_email_taken(self, client, mock_db, mock_redis):
         mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
             make_cursor(fetchone=None),
             UniqueViolation("duplicate key"),
         ])
@@ -206,11 +231,21 @@ class TestOauthCallbackNewUser:
         assert "error=email_already_taken" in resp.headers["location"]
         mock_db.rollback.assert_called_once()
 
-    async def test_sets_session_cookie(self, client, mock_db, mock_redis):
+    async def test_race_on_the_username_is_not_reported_as_a_taken_email(self, client, mock_db, mock_redis):
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=None),
-            make_cursor(fetchone={"id": 7, "profile_complete": False}),
+            make_cursor(fetchone=None),
+            UniqueViolation("duplicate key"),
         ])
+
+        with patch("app.routes.oauth.is_username_conflict", return_value=True):
+            resp = await do_callback(client, mock_redis)
+
+        assert "error=db_error" in resp.headers["location"]
+        mock_db.rollback.assert_called_once()
+
+    async def test_sets_session_cookie(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
 
         resp = await do_callback(client, mock_redis)
 

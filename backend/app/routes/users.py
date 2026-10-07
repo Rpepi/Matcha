@@ -10,7 +10,7 @@ from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.rate_limiter.rate_limit import rate_limit
 from app.utils import require_json
-from app.validation import clean_str, parse_int_param, valid_target_id, MAX_REASON
+from app.validation import clean_str, parse_int_param, parse_choice_param, parse_tags_param, valid_target_id, MAX_REASON
 from app.log import get_logger
 from app.routes.notifications import insert_notification, publish_notification
 from app.routes.chat import publish_unmatch
@@ -19,6 +19,17 @@ from app.routes.chat import publish_unmatch
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+# ``sort`` values of GET /users: the ORDER BY term (an alias of the SELECT list or a
+# column) and the direction used when ``order`` is not given. The client's text is
+# only ever compared to these keys, never put in the query.
+BROWSE_SORTS = {
+    "score": ("score", "desc"),
+    "age": ("age", "asc"),
+    "distance": ("distance_km", "asc"),
+    "fame": ("u.fame_rating", "desc"),
+    "tags": ("common_tags", "desc"),
+}
 
 
 async def _get_user_or_404(conn: AsyncConnection, user_id: int) -> dict:
@@ -29,15 +40,15 @@ async def _get_user_or_404(conn: AsyncConnection, user_id: int) -> dict:
         user_id: Id of the user to fetch.
 
     Returns:
-        A dict with ``id``, ``first_name``, ``last_name``, ``gender``,
-        ``orientation``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
-        ``is_online`` and ``last_seen``.
+        A dict with ``id``, ``username``, ``first_name``, ``last_name``,
+        ``gender``, ``orientation``, ``bio``, ``birth_date``, ``fame_rating``,
+        ``city``, ``is_online`` and ``last_seen``.
 
     Raises:
         HTTPException: 404 if the user does not exist.
     """
     cursor = await conn.execute("""
-        SELECT id, first_name, last_name, gender, orientation,
+        SELECT id, username, first_name, last_name, gender, orientation,
             bio, birth_date, fame_rating, city, is_online, last_seen
         FROM users WHERE id = %s
     """, (user_id,))
@@ -135,14 +146,20 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     excluding the user themself, blocked users (both directions) and users
     not compatible with the orientation rules. They are ranked by a score
     combining shared tags (x20), fame (x0.5), age closeness and distance
-    (x0.1 per km), best first, 20 per page. The current user must have set
-    their location.
+    (x0.1 per km), best first unless ``sort`` says otherwise, 20 per page.
+    The current user must have set their location.
 
     Args:
         request: Incoming request with the ``session`` cookie and optional
             integer query parameters ``page`` (0-based), ``min_age``,
-            ``max_age``, ``max_distance`` (km), ``min_fame`` and ``min_tags``
-            (minimum number of tags in common).
+            ``max_age``, ``max_distance`` (km), ``min_fame``, ``max_fame``
+            and ``min_tags`` (minimum number of tags in common). ``tags`` is
+            a comma-separated list of tag names (at most 5) that every
+            returned profile must have. ``sort`` is one of ``score`` (the
+            default), ``age``, ``distance``, ``fame`` or ``tags`` (tags in
+            common), and ``order`` is ``asc`` or ``desc`` (each sort has its
+            own default: youngest first, closest first, highest fame first,
+            most tags in common first). Ties are broken by id.
         redis: Redis client (injected dependency).
         conn: Database connection (injected dependency).
 
@@ -156,9 +173,11 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     Raises:
         HTTPException: 400 if a query parameter is not an integer or is out
             of range (``page`` 0-10000, ``min_age``/``max_age`` 16-120,
-            ``max_distance`` 0-40000, ``min_fame`` 0-1000000, ``min_tags``
-            0-5) or the user's location is not set; 401 if the session is
-            missing or invalid.
+            ``max_distance`` 0-40000, ``min_fame``/``max_fame`` 0-1000000,
+            ``min_tags`` 0-5), ``sort`` or ``order`` is not one of the
+            values above, ``tags`` holds an invalid or more than 5 names, or
+            the user's location is not set; 401 if the session is missing or
+            invalid.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -169,6 +188,10 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     max_dist    = parse_int_param(qp.get("max_distance"), "max_distance", 0, 40_000)
     min_fame    = parse_int_param(qp.get("min_fame"), "min_fame", 0, 1_000_000)
     min_tags    = parse_int_param(qp.get("min_tags"), "min_tags", 0, 5)
+    max_fame    = parse_int_param(qp.get("max_fame"), "max_fame", 0, 1_000_000)
+    tag_names   = parse_tags_param(qp.get("tags"))
+    sort        = parse_choice_param(qp.get("sort"), "sort", tuple(BROWSE_SORTS)) or "score"
+    order       = parse_choice_param(qp.get("order"), "order", ("asc", "desc"))
 
     cursor = await conn.execute(
         "SELECT gender, orientation, latitude, longitude, birth_date FROM users WHERE id = %s",
@@ -214,6 +237,9 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     if min_fame is not None:
         conditions.append("u.fame_rating >= %s")
         where_params.append(min_fame)
+    if max_fame is not None:
+        conditions.append("u.fame_rating <= %s")
+        where_params.append(max_fame)
     if min_tags is not None:
         conditions.append("""(
             SELECT COUNT(*) FROM user_tags a
@@ -221,8 +247,20 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
             WHERE a.user_id = u.id AND b.user_id = %s
         ) >= %s""")
         where_params.extend([user_id, min_tags])
+    if tag_names:
+        # Named tags: the profile must carry every one of them.
+        conditions.append("""(
+            SELECT COUNT(*) FROM user_tags ut
+            JOIN tags t ON t.id = ut.tag_id
+            WHERE ut.user_id = u.id AND t.name = ANY(%s)
+        ) = %s""")
+        where_params.extend([tag_names, len(tag_names)])
 
     where_clause = " AND ".join(conditions)
+
+    # Both parts come from BROWSE_SORTS / a validated choice, never from the client's text.
+    sort_column, default_order = BROWSE_SORTS[sort]
+    direction = (order or default_order).upper()
 
     # age diff term: embed as literal (my_age comes from the DB, not user input)
     age_term = f"- ABS(DATE_PART('year', AGE(u.birth_date)) - {my_age}) * 1.0" if my_age else ""
@@ -251,7 +289,7 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
             EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = u.id)     AS is_liked_by_me
         FROM users u
         WHERE {where_clause}
-        ORDER BY score DESC
+        ORDER BY {sort_column} {direction}, u.id
         LIMIT 20 OFFSET %s
     """
 
@@ -292,7 +330,9 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
 
     Returns:
         The public fields of the user (see ``_get_user_or_404``) plus
-        ``photos``, ``tags``, ``is_liked_by_me`` and ``is_match``.
+        ``photos``, ``tags``, ``is_liked_by_me``, ``likes_me`` (the user
+        likes the current user, whether or not it is returned) and
+        ``is_match`` (both like each other).
 
     Raises:
         HTTPException: 400 if ``target_id`` is the current user; 401 if not
@@ -329,6 +369,7 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     """, (user_id, target_id, target_id, user_id))
     like_status = await cursor.fetchone()
     profile["is_liked_by_me"] = like_status["liked_by_me"]
+    profile["likes_me"] = like_status["liked_by_them"]
     profile["is_match"] = like_status["liked_by_me"] and like_status["liked_by_them"]
 
     try:
@@ -408,7 +449,9 @@ async def get_user_photo(target_id: int, position: int, request: Request, redis:
 async def like_user(target_id: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Like a user, creating a match if the like is reciprocated.
 
-    Liking again is harmless and returns "already liked". A new like
+    The current user needs a profile picture of their own to like anyone (the
+    person being liked does not). Liking again is harmless and returns
+    "already liked". A new like
     notifies the target with "like", or both users with "match" when the
     target already liked back. Fame ratings are recalculated in the same
     transaction.
@@ -424,8 +467,9 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
 
     Raises:
         HTTPException: 400 if ``target_id`` is the current user; 401 if not
-            authenticated; 404 if the user does not exist, a block exists,
-            or the target has no profile picture; 500 if the like fails.
+            authenticated; 403 if the current user has no profile picture;
+            404 if the user does not exist or a block exists; 500 if the
+            like fails.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -441,13 +485,14 @@ async def like_user(target_id: int, request: Request, redis: Redis = Depends(get
     if await cursor.fetchone() is None:
         raise HTTPException(status_code=404, detail="user not found")
     
+    # The liker needs a profile picture, not the person being liked.
     photo_cursor = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM photos WHERE user_id = %s AND is_profile = true)", (target_id,)
+        "SELECT EXISTS (SELECT 1 FROM photos WHERE user_id = %s AND is_profile = true)", (user_id,)
     )
     has_profile_picture = await photo_cursor.fetchone()
 
     if not has_profile_picture["exists"]:
-        raise HTTPException(status_code=404, detail="can't like a user who doesn't have a profile picture")
+        raise HTTPException(status_code=403, detail="you need a profile picture to like other users")
 
     try:
         cursor = await conn.execute(

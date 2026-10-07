@@ -5,6 +5,7 @@ export type AuthStatus = 'loading' | 'guest' | 'incomplete' | 'complete';
 export interface Profile {
     id: number;
     email: string;
+    username: string;
     first_name: string;
     last_name: string;
     gender: string | null;
