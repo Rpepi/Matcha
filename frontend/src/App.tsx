@@ -19,6 +19,7 @@ import GuestRoute from "./components/GuestRoute";
 import OnboardingRoute from "./components/OnboardingRoute";
 import { NotificationProvider } from "./context/NotificationContext";
 import NotificationPage from "./pages/NotificationPage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 function App() {
     return (
@@ -40,6 +41,7 @@ function App() {
                                 <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
                                 <Route path="/verify" element={<VerifyPage />} />
                                 <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+                                <Route path="*" element={<NotFoundPage />} />
                             </Routes>
                         </NotificationProvider>
                     </ChatProvider>
