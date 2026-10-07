@@ -33,7 +33,10 @@ function App() {
                                     <Route path="/browse" element={<BrowsePage />} />
                                     <Route path="/users/:id" element={<UserPage />} />
                                 </Route>
-                                <Route path="/chat/:id?" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/visitors" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/likes" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/:id" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                                 <Route path="/notification" element={<ProtectedRoute><NotificationPage /></ProtectedRoute>} />
                                 <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                                 <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreviewPage /></ProtectedRoute>} />
