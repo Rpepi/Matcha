@@ -5,6 +5,7 @@ import ProfileHeader from "@/components/userProfile/ProfileHeader";
 import ProfileMeta from "@/components/userProfile/ProfileMeta";
 import ProfileAbout from "@/components/userProfile/ProfileAbout";
 import ProfileInterests from "@/components/userProfile/ProfileInterests";
+import OnlineStatus from "@/components/userProfile/OnlineStatus";
 
 export default function ProfilePreviewPage() {
     const { status, profile } = useProfileContext();
@@ -29,6 +30,7 @@ export default function ProfilePreviewPage() {
 
                 <div className="flex min-w-0 flex-1 flex-col gap-5">
                     <div className="flex flex-col gap-5">
+                        <OnlineStatus profile={profile} />
                         <ProfileHeader profile={profile} />
                         <ProfileMeta profile={profile} />
                     </div>

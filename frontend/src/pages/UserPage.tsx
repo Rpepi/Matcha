@@ -8,6 +8,8 @@ import ProfileMeta from "@/components/userProfile/ProfileMeta";
 import ProfileActions from "@/components/userProfile/ProfileActions";
 import ProfileAbout from "@/components/userProfile/ProfileAbout";
 import ProfileInterests from "@/components/userProfile/ProfileInterests";
+import OnlineStatus from "@/components/userProfile/OnlineStatus";
+import ReportMenu from "@/components/userProfile/ReportMenu";
 
 export default function UserPage() {
     const { id } = useParams<{ id: string }>();
@@ -43,7 +45,13 @@ export default function UserPage() {
 
                 <div className="flex min-w-0 flex-1 flex-col gap-10">
                     <div className="flex flex-col gap-5">
-                        <ProfileHeader profile={profile} />
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center justify-between gap-4">
+                                <OnlineStatus profile={profile} />
+                                <ReportMenu userId={profile.id} firstName={profile.first_name} />
+                            </div>
+                            <ProfileHeader profile={profile} />
+                        </div>
                         <ProfileMeta profile={profile} />
                         <ProfileActions profile={profile} />
                     </div>
