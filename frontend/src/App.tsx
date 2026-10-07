@@ -14,6 +14,8 @@ import RegisterPage from "./pages/RegisterPage";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import UserPage from "./pages/UserPage";
 import VerifyPage from "./pages/VerifyPage"
+import ForgotPasswordPage from "./pages/ForgotPasswordPage"
+import ResetPasswordPage from "./pages/ResetPasswordPage"
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
 import OnboardingRoute from "./components/OnboardingRoute";
@@ -43,6 +45,8 @@ function App() {
                                 <Route path="/complete-profile" element={<OnboardingRoute><CompleteProfilePage /></OnboardingRoute>} />
                                 <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
                                 <Route path="/verify" element={<VerifyPage />} />
+                                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                                <Route path="/reset-password" element={<ResetPasswordPage />} />
                                 <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
                                 <Route path="*" element={<NotFoundPage />} />
                             </Routes>
