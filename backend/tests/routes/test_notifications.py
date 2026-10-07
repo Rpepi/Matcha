@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from starlette.testclient import TestClient
@@ -27,6 +28,15 @@ def make_pubsub(messages=None):
     p.aclose = AsyncMock()
     p.listen = MagicMock(side_effect=lambda: _listen())
     return p
+
+
+@pytest.fixture(autouse=True)
+def presence():
+    """The stream records presence in Redis and PostgreSQL; the tests below are about
+    the stream itself, so both calls are stubbed (app/presence.py has its own tests)."""
+    with patch("app.routes.notifications.user_connected", new=AsyncMock()) as connected, \
+         patch("app.routes.notifications.user_disconnected", new=AsyncMock()) as disconnected:
+        yield SimpleNamespace(connected=connected, disconnected=disconnected)
 
 
 @pytest.fixture
@@ -619,3 +629,69 @@ class TestNotificationsStream:
         pubsub_a.subscribe.assert_called_once_with("notif:99")
         channel = pubsub_a.subscribe.call_args.args[0]
         assert channel != "notif:42"
+
+
+# ── presence: an open stream keeps the user online ────────────────────────────
+
+class TestStreamPresence:
+    @staticmethod
+    def open_stream(notif_app, user_id="42"):
+        with patch("app.routes.notifications.get_current_user_id", new=AsyncMock(return_value=user_id)):
+            with TestClient(notif_app) as tc:
+                with tc.stream("GET", "/notifications/stream",
+                               headers={"Cookie": f"session={make_session_cookie()}"}) as resp:
+                    b"".join(resp.iter_bytes())
+
+    def test_opening_the_stream_records_the_user_as_connected(self, notif_app, mock_redis, presence):
+        self.open_stream(notif_app)
+        presence.connected.assert_awaited_once_with(mock_redis, "42")
+
+    def test_closing_the_stream_records_the_user_as_disconnected(self, notif_app, mock_redis, presence):
+        self.open_stream(notif_app)
+        presence.disconnected.assert_awaited_once_with(mock_redis, "42")
+
+    def test_each_connection_is_counted_once(self, notif_app, presence):
+        self.open_stream(notif_app)
+        self.open_stream(notif_app)
+        assert presence.connected.await_count == 2
+        assert presence.disconnected.await_count == 2
+
+    def test_unauthenticated_stream_is_never_counted(self, notif_app, presence):
+        from fastapi import HTTPException
+        with patch("app.routes.notifications.get_current_user_id",
+                   new=AsyncMock(side_effect=HTTPException(401, "Not Authenticated"))):
+            with TestClient(notif_app, raise_server_exceptions=False) as tc:
+                assert tc.get("/notifications/stream").status_code == 401
+        presence.connected.assert_not_called()
+        presence.disconnected.assert_not_called()
+
+    def test_a_failure_to_record_presence_does_not_break_the_stream(self, notif_app, mock_redis, presence):
+        payload = json.dumps({"type": "like", "from_user_id": "7"})
+        mock_redis.pubsub = MagicMock(return_value=make_pubsub([{"type": "message", "data": payload}]))
+        presence.connected.side_effect = RuntimeError("redis down")
+
+        with patch("app.routes.notifications.get_current_user_id", new=AsyncMock(return_value="42")):
+            with TestClient(notif_app) as tc:
+                with tc.stream("GET", "/notifications/stream",
+                               headers={"Cookie": f"session={make_session_cookie()}"}) as resp:
+                    assert resp.status_code == 200
+                    body = b"".join(resp.iter_bytes())
+
+        assert f"data: {payload}\n\n".encode() in body
+        # The connection was never counted, so it must not be uncounted either.
+        presence.disconnected.assert_not_called()
+
+    def test_a_failure_to_record_the_disconnection_is_contained(self, notif_app, presence):
+        presence.disconnected.side_effect = RuntimeError("db down")
+        self.open_stream(notif_app)  # must not raise
+        presence.disconnected.assert_awaited_once()
+
+    def test_the_stream_still_unsubscribes_when_presence_fails(self, notif_app, mock_redis, presence):
+        pubsub = make_pubsub()
+        mock_redis.pubsub = MagicMock(return_value=pubsub)
+        presence.disconnected.side_effect = RuntimeError("db down")
+
+        self.open_stream(notif_app)
+
+        pubsub.unsubscribe.assert_called_once_with("notif:42")
+        pubsub.aclose.assert_awaited_once()

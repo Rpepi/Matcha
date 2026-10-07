@@ -55,6 +55,17 @@ export function formatListTime(value: string, now: Date = new Date()): string {
     return DATE_LONG.format(date);
 }
 
+/**
+ * Last connection with its date and its time, for a profile: "Last seen today at 14:32",
+ * "Last seen yesterday at 09:10", "Last seen Monday at 18:05", "Last seen October 3, 2026 at 18:05".
+ * `null` (never seen: an account from before presence was recorded) reads as plain "Offline".
+ */
+export function formatLastSeenAt(value: string | null, now: Date = new Date()): string {
+    if (!value) return "Offline";
+    const day = formatDayLabel(value, now);
+    return `Last seen ${day === "Today" || day === "Yesterday" ? day.toLowerCase() : day} at ${formatMessageTime(value)}`;
+}
+
 export function formatLastSeen(value: string | null, now: Date = new Date()): string {
     if (!value) return "Offline";
     const date = parseServerDate(value);

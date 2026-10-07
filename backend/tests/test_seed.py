@@ -2,16 +2,28 @@ import pytest
 from datetime import date
 from unittest.mock import MagicMock, patch, call
 from psycopg import errors as psycopg_errors
-from app.seed import generate_user, TAGS
+from datetime import datetime, timedelta, timezone
+from app.seed import fake, generate_user, make_username, TAGS, CITIES, CITY_SPREAD_DEGREES, LAST_SEEN_WITHIN_DAYS
+from app.validation import clean_username
 
 
 REQUIRED_KEYS = {
-    "email", "first_name", "last_name",
+    "email", "username", "first_name", "last_name",
     "password_hash", "birth_date", "bio",
     "gender", "orientation",
-    "latitude", "longitude",
+    "city", "latitude", "longitude", "last_seen",
     "profile_complete", "verified",
 }
+
+@pytest.fixture(autouse=True)
+def fresh_unique_values():
+    """Faker's ``unique`` remembers every value for the life of the process and
+    has a few hundred first names: a seed run uses 500 of them, so each test
+    starts over instead of exhausting the pool together with the others."""
+    fake.unique.clear()
+    yield
+    fake.unique.clear()
+
 
 VALID_GENDERS = {"male", "female", "other"}
 VALID_ORIENTATIONS = {"hetero", "homo", "bi"}
@@ -70,6 +82,64 @@ class TestGenerateUser:
         u2 = generate_user()
         assert u1["email"] != u2["email"]
 
+    def test_two_users_have_different_usernames(self):
+        assert generate_user()["username"] != generate_user()["username"]
+
+    def test_username_is_accepted_by_the_registration_rules(self):
+        for _ in range(50):
+            user = generate_user()
+            assert clean_username(user["username"]) == user["username"]
+
+
+class TestMakeUsername:
+    @pytest.mark.parametrize("first, last, expected", [
+        ("Eileen", "Cox", "eileen.cox"),
+        ("Anne-Marie", "O'Neil", "annemarie.oneil"),
+        ("José", "Núñez", "jos.nez"),          # what is not a-z is dropped
+        ("A" * 40, "B" * 40, "a" * 30),
+    ])
+    def test_keeps_lowercase_letters_digits_and_dots(self, first, last, expected):
+        assert make_username(first, last) == expected
+
+    def test_never_starts_with_a_dot(self):
+        assert not make_username("!!!", "Cox").startswith(".")
+
+
+class TestSeededPlaces:
+    @pytest.fixture(autouse=True)
+    def cheap_hash(self):
+        # These tests draw hundreds of users and look at places, not at passwords.
+        with patch("app.seed.ph", MagicMock(hash=MagicMock(return_value="$argon2id$fake"))):
+            yield
+
+    def test_user_lives_around_one_of_the_cities(self):
+        for _ in range(100):
+            user = generate_user()
+            matches = [c for c in CITIES if c[0] == user["city"]]
+            assert len(matches) == 1
+            _, lat, lon, _ = matches[0]
+            assert abs(user["latitude"] - lat) <= CITY_SPREAD_DEGREES
+            assert abs(user["longitude"] - lon) <= CITY_SPREAD_DEGREES
+
+    def test_every_city_gets_used_and_the_biggest_one_most(self):
+        counts = {}
+        for _ in range(400):
+            city = generate_user()["city"]
+            counts[city] = counts.get(city, 0) + 1
+        assert set(counts) == {c[0] for c in CITIES}
+        biggest = max(CITIES, key=lambda c: c[3])[0]
+        assert counts[biggest] == max(counts.values())
+
+    def test_last_seen_is_in_the_past_30_days(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for _ in range(50):
+            seen = generate_user()["last_seen"]
+            assert now - timedelta(days=LAST_SEEN_WITHIN_DAYS, minutes=1) <= seen <= now
+
+    def test_seeded_users_are_offline(self):
+        # is_online is left to its default (false): the server resets it at each start anyway.
+        assert "is_online" not in generate_user()
+
 
 # ── seed() function ───────────────────────────────────────────────────────────
 
@@ -78,7 +148,7 @@ from datetime import date as _date
 
 def _fake_user(n: int) -> dict:
     return {
-        "email": f"user{n}@test.com",
+        "email": f"user{n}@test.com", "username": f"user{n}",
         "first_name": "A", "last_name": "B",
         "password_hash": "$argon2id$v=19$m=19456,t=2,p=1$fake",
         "birth_date": _date(1990, 1, 1), "bio": "bio",

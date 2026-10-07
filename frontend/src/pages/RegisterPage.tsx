@@ -13,6 +13,7 @@ import GoogleAuthButton from "../components/GoogleAuthButton";
 export default function RegisterPage() {
     const [password, setPassword] = useState('');
     const [email, setEmail] = useState('');
+    const [username, setUsername] = useState('');
     const [first_name, setFirstName] = useState('');
     const [last_name, setLastName] = useState('');
 
@@ -35,7 +36,7 @@ export default function RegisterPage() {
         if (isLoading)
             return;
         setIsLoading(true)
-        const response = await register(password, email, first_name, last_name);
+        const response = await register(password, email, username.trim(), first_name, last_name);
 
         if (response.ok)
         {
@@ -92,6 +93,17 @@ export default function RegisterPage() {
                     />
                 </div>
 
+                <Field
+                    label="Username"
+                    id="username"
+                    type="text"
+                    autoComplete="username"
+                    minLength={3}
+                    maxLength={30}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                />
                 <Field
                     label="Email"
                     id="email"

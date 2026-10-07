@@ -1,4 +1,5 @@
 import json
+import anyio
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from psycopg import AsyncConnection
@@ -6,6 +7,7 @@ from redis import Redis
 from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
+from app.presence import user_connected, user_disconnected
 from app.log import get_logger
 
 logger = get_logger(__name__)
@@ -39,6 +41,9 @@ async def notifications(request: Request, redis=Depends(get_redis)):
     a handful of open tabs, exhaust the pool (max 5) and freeze every endpoint
     that touches the database.
 
+    An open stream is also what keeps the user online (see ``app.presence``).
+    Presence is best-effort: if it cannot be recorded the stream still works.
+
     Args:
         request: Incoming request, carrying the ``session`` cookie.
         redis: Redis client (injected dependency).
@@ -61,6 +66,12 @@ async def notifications(request: Request, redis=Depends(get_redis)):
         """
         pubsub = redis.pubsub()
         await pubsub.subscribe(f"notif:{user_id}")
+        counted = False
+        try:
+            await user_connected(redis, user_id)
+            counted = True
+        except Exception:
+            logger.exception("Could not record that user %s is online", user_id)
         try:
             async for message in pubsub.listen():
                 if await request.is_disconnected():
@@ -72,6 +83,14 @@ async def notifications(request: Request, redis=Depends(get_redis)):
         finally:
             await pubsub.unsubscribe(f"notif:{user_id}")
             await pubsub.aclose()
+            if counted:
+                # A closed tab cancels this generator: shield the update, or the
+                # cancellation would interrupt it and leave the user online for ever.
+                with anyio.CancelScope(shield=True):
+                    try:
+                        await user_disconnected(redis, user_id)
+                    except Exception:
+                        logger.exception("Could not record that user %s went offline", user_id)
 
     return StreamingResponse(
         event_generator(),

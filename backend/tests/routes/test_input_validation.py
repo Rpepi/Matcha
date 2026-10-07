@@ -108,6 +108,13 @@ class TestLoginInput:
         {"email": "a@b.co"},
         {"password": "secret1!"},
         {},
+        {"username": f"al{NUL}ice", "password": "secret1!"},
+        {"username": SURROGATE, "password": "secret1!"},
+        {"username": "a" * 101, "password": "secret1!"},
+        {"username": 5, "password": "secret1!"},
+        {"username": None, "password": "secret1!"},
+        {"username": ["alice"], "password": "secret1!"},
+        {"username": "   ", "password": "secret1!"},
     ])
     async def test_bad_login_is_400_and_never_hits_db(self, client, mock_db, body):
         # 1 MB body is > 64 KB, so that case is a 413 rather than a 400.
@@ -146,7 +153,7 @@ class TestForgotPasswordInput:
 
 
 class TestRegisterInput:
-    VALID = {"email": "new@x.co", "password": "Sup3rsecret!", "first_name": "Al", "last_name": "Ice"}
+    VALID = {"email": "new@x.co", "username": "al_ice", "password": "Sup3rsecret!", "first_name": "Al", "last_name": "Ice"}
 
     @pytest.mark.parametrize("override", [
         {"password": 123},
@@ -163,6 +170,18 @@ class TestRegisterInput:
         {"email": "no-at-sign"},
         {"email": "a@b.co\n\n"},
         {"email": 5},
+        {"username": f"al{NUL}ice"},
+        {"username": SURROGATE + "alice"},
+        {"username": "a" * 31},
+        {"username": "al"},
+        {"username": "al ice"},
+        {"username": "al\nice"},
+        {"username": "al@ice"},
+        {"username": "<script>alert(1)</script>"},
+        {"username": "' OR 1=1 --"},
+        {"username": 5},
+        {"username": None},
+        {"username": ["alice"]},
         {"first_name": "a" * 51},
         {"first_name": f"Al{NUL}"},
         {"first_name": SURROGATE},
@@ -180,7 +199,7 @@ class TestRegisterInput:
         assert res.status_code == 400
         mock_db.execute.assert_not_called()
 
-    @pytest.mark.parametrize("missing", ["email", "password", "first_name", "last_name"])
+    @pytest.mark.parametrize("missing", ["email", "username", "password", "first_name", "last_name"])
     async def test_missing_field_is_400(self, client, mock_db, missing):
         body = {k: v for k, v in self.VALID.items() if k != missing}
         res = await send(client, "POST", "/auth/register", body)
@@ -263,6 +282,9 @@ class TestPutProfileInput:
         {"last_name": 5}, {"last_name": "a" * 51}, {"last_name": f"a{NUL}"}, {"last_name": None},
         {"email": "nope"}, {"email": "a" * 96 + "@b.co"}, {"email": 5}, {"email": f"a{NUL}@b.co"},
         {"email": None}, {"email": "a@b.co\n\n"},
+        {"username": 5}, {"username": None}, {"username": ""}, {"username": "ab"}, {"username": "a" * 31},
+        {"username": f"al{NUL}ice"}, {"username": SURROGATE}, {"username": "al ice"}, {"username": "al@ice"},
+        {"username": "<script>"}, {"username": ["alice"]}, {"username": "-alice"},
         {"gender": "robot"}, {"gender": 5}, {"gender": None}, {"gender": "Male"}, {"gender": f"male{NUL}"},
         {"gender": "x" * 21},
         {"orientation": "robot"}, {"orientation": 5}, {"orientation": None}, {"orientation": "gay"},
@@ -419,6 +441,10 @@ class TestBrowseInput:
         "max_distance=-1", "max_distance=40001", "max_distance=99999999999999999999",
         "min_fame=-1", "min_fame=1000001", "min_fame=99999999999999999999",
         "min_tags=-1", "min_tags=6",
+        "max_fame=-1", "max_fame=1000001", "max_fame=99999999999999999999", "max_fame=%00", "max_fame=%D9%A3",
+        "sort=name", "sort=%00", "sort=score%3BDROP%20TABLE%20users", "sort=" + "a" * 5000,
+        "order=up", "order=ASC", "order=%00", "order=asc%20desc",
+        "tags=a,b,c,d,e,f", "tags=a,,b", "tags=%00", "tags=" + "t" * 51, "tags=" + "a," * 5000,
         "min_age=%00", "min_age=1_8", "min_age=%20", "min_age=%D9%A3", "page=%2B1",
     ])
     async def test_bad_query_param_is_400_and_never_hits_db(self, authed, mock_db, query):

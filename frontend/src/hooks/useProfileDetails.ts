@@ -5,6 +5,7 @@ import { useToast } from "@/context/ToastContext";
 import { updateProfile } from "@/api/profile";
 
 export interface ProfileDetailsFields {
+    username: string;
     first_name: string;
     last_name: string;
     gender: string;
@@ -14,6 +15,7 @@ export interface ProfileDetailsFields {
 
 function fieldsFrom(profile: Profile): ProfileDetailsFields {
     return {
+        username: profile.username,
         first_name: profile.first_name,
         last_name: profile.last_name,
         gender: profile.gender ?? "",
