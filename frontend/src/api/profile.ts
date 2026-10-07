@@ -26,3 +26,33 @@ export async function updateLocation(latitude: number, longitude: number): Promi
     })
     return response
 }
+
+export interface Visit {
+    id: number;
+    visitor_id: number;
+    created_at: string;
+    first_name: string;
+    photo_position: number | null;
+}
+
+export interface Like {
+    id: number;
+    liker_id: number;
+    created_at: string;
+    first_name: string;
+    photo_position: number | null;
+}
+
+export async function getVisits(): Promise<Response> {
+    const response = await fetch('/api/profile/me/visits', {
+        credentials: 'include',
+    })
+    return response
+}
+
+export async function getLikes(): Promise<Response> {
+    const response = await fetch('/api/profile/me/likes', {
+        credentials: 'include',
+    })
+    return response
+}

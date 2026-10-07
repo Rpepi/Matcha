@@ -1,15 +1,44 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { Loader2, MessageCircle } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Eye, Heart, Loader2, MessageCircle } from "lucide-react";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 import { useChatContext } from "@/context/ChatContext";
 import { useNotificationContext } from "@/context/NotificationContext";
 import ChatThread from "@/components/chat/ChatThread";
 import ConversationList from "@/components/chat/ConversationList";
+import VisitorsList from "@/components/chat/VisitorsList";
+import LikesList from "@/components/chat/LikesList";
 import type { ChatMessage } from "@/api/chat";
 
 const MAX_USER_ID = 2 ** 31 - 1;
+
+type Tab = "messages" | "visitors" | "likes";
+
+const TABS: { tab: Tab; to: string; label: string }[] = [
+    { tab: "messages", to: "/chat", label: "Messages" },
+    { tab: "visitors", to: "/chat/visitors", label: "Visitors" },
+    { tab: "likes", to: "/chat/likes", label: "Likes" },
+];
+
+function TabBar({ activeTab }: { activeTab: Tab }) {
+    return (
+        <div className="mx-6 mt-6 mb-4 flex gap-1 rounded-full bg-grey/10 p-1">
+            {TABS.map(({ tab, to, label }) => (
+                <Link
+                    key={tab}
+                    to={to}
+                    aria-current={activeTab === tab ? "page" : undefined}
+                    className={`flex-1 rounded-full px-3 py-1.5 text-center text-sm font-medium transition ${
+                        activeTab === tab ? "bg-paper text-ink shadow-sm" : "text-grey hover:text-ink"
+                    }`}
+                >
+                    {label}
+                </Link>
+            ))}
+        </div>
+    );
+}
 
 /** `/chat/:id` as a user id, or null when the segment cannot be one. */
 function parseUserId(raw: string | undefined): number | null {
@@ -20,6 +49,7 @@ function parseUserId(raw: string | undefined): number | null {
 
 export default function ChatPage() {
     const { id: rawId } = useParams<{ id: string }>();
+    const location = useLocation();
     const navigate = useNavigate();
     const { profile } = useProfileContext();
     const { showNotice } = useToast();
@@ -31,6 +61,7 @@ export default function ChatPage() {
     const activeId = parseUserId(rawId);
     const active = conversations.find((c) => c.user.id === activeId) ?? null;
     const hasThreadOpen = rawId !== undefined;
+    const activeTab: Tab = location.pathname === "/chat/visitors" ? "visitors" : location.pathname === "/chat/likes" ? "likes" : "messages";
 
     // The shared list may predate a match made moments ago (a "Message" link
     // clicked right after matching): refresh before deciding a conversation does not exist.
@@ -89,15 +120,21 @@ export default function ChatPage() {
             <aside
                 className={`${hasThreadOpen ? "hidden md:flex" : "flex"} w-full shrink-0 flex-col border-grey/15 md:w-80 md:border-r-3 lg:w-96`}
             >
-                <h1 className="px-6 pt-6 pb-4 font-display text-3xl text-ink">Messages</h1>
-                <ConversationList
-                    conversations={conversations}
-                    myId={myId}
-                    activeId={activeId}
-                    isLoading={isLoading}
-                    error={error}
-                    onRetry={() => void reload()}
-                />
+                <TabBar activeTab={activeTab} />
+                {activeTab === "messages" ? (
+                    <ConversationList
+                        conversations={conversations}
+                        myId={myId}
+                        activeId={activeId}
+                        isLoading={isLoading}
+                        error={error}
+                        onRetry={() => void reload()}
+                    />
+                ) : activeTab === "visitors" ? (
+                    <VisitorsList />
+                ) : (
+                    <LikesList />
+                )}
             </aside>
 
             <section className={`${hasThreadOpen ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
@@ -118,10 +155,30 @@ export default function ChatPage() {
                 ) : (
                     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                         <span className="flex h-16 w-16 items-center justify-center rounded-full bg-matcha/25">
-                            <MessageCircle className="h-8 w-8 text-ink" />
+                            {activeTab === "messages" ? (
+                                <MessageCircle className="h-8 w-8 text-ink" />
+                            ) : activeTab === "visitors" ? (
+                                <Eye className="h-8 w-8 text-ink" />
+                            ) : (
+                                <Heart className="h-8 w-8 text-ink" />
+                            )}
                         </span>
-                        <p className="font-display text-xl text-ink">Your messages</p>
-                        <p className="max-w-xs text-sm text-grey">Pick a conversation to read it and reply.</p>
+                        {activeTab === "messages" ? (
+                            <>
+                                <p className="font-display text-xl text-ink">Your messages</p>
+                                <p className="max-w-xs text-sm text-grey">Pick a conversation to read it and reply.</p>
+                            </>
+                        ) : activeTab === "visitors" ? (
+                            <>
+                                <p className="font-display text-xl text-ink">Your visitors</p>
+                                <p className="max-w-xs text-sm text-grey">Select someone to view their profile.</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="font-display text-xl text-ink">Your likes</p>
+                                <p className="max-w-xs text-sm text-grey">Select someone to view their profile.</p>
+                            </>
+                        )}
                     </div>
                 )}
             </section>
