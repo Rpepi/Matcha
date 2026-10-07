@@ -32,25 +32,27 @@ export default function UserPage() {
     }
 
     return (
-        <div className="mx-auto flex max-w-6xl flex-col gap-10 p-6 lg:min-h-dvh lg:flex-row lg:items-center lg:gap-16 lg:p-16">
-            <ProfilePhotoGallery
-                profile={profile}
-                photoUrl={(photo) => `/api/users/${profile.id}/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`}
-                backTo="/browse"
-                backLabel="Back to Browse"
-            />
+        <div className="mx-auto max-w-6xl p-6 lg:flex lg:min-h-dvh lg:items-center lg:p-16">
+            <div className="flex flex-col gap-5 lg:w-full lg:flex-row lg:items-start lg:gap-16">
+                <ProfilePhotoGallery
+                    profile={profile}
+                    photoUrl={(photo) => `/api/users/${profile.id}/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`}
+                    backTo="/browse"
+                    backLabel="Back to Browse"
+                />
 
-            <div className="flex min-w-0 flex-1 flex-col gap-10">
-                <div className="flex flex-col gap-5">
-                    <ProfileHeader profile={profile} />
-                    <ProfileMeta profile={profile} />
-                    <ProfileActions profile={profile} />
+                <div className="flex min-w-0 flex-1 flex-col gap-10">
+                    <div className="flex flex-col gap-5">
+                        <ProfileHeader profile={profile} />
+                        <ProfileMeta profile={profile} />
+                        <ProfileActions profile={profile} />
+                    </div>
+
+                    <div className="h-px bg-grey/20" />
+
+                    <ProfileAbout bio={profile.bio} />
+                    <ProfileInterests tags={profile.tags} myTags={myProfile?.tags ?? []} />
                 </div>
-
-                <div className="h-px bg-grey/20" />
-
-                <ProfileAbout bio={profile.bio} />
-                <ProfileInterests tags={profile.tags} myTags={myProfile?.tags ?? []} />
             </div>
         </div>
     );
