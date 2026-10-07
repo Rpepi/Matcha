@@ -17,7 +17,7 @@ export default function ProfileHeader({ profile }: ProfileHeaderProps) {
     return (
         <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-                <h1 className="truncate font-display text-5xl font-semibold text-ink lg:text-6xl">
+                <h1 className="truncate font-display text-5xl leading-[1.2] font-semibold text-ink lg:text-6xl">
                     {profile.first_name}
                     {age !== null && <span className="text-grey">, {age}</span>}
                 </h1>
