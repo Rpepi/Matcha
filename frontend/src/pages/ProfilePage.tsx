@@ -1,6 +1,7 @@
-import { Loader2, Eye } from "lucide-react";
+import { Loader2, Eye, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useProfileContext } from "@/context/ProfileContext";
+import { logout } from "@/api/auth";
 import ProfilePhotos from "@/components/profile/ProfilePhotos";
 import ProfileDetails from "@/components/profile/ProfileDetails";
 import ProfileBio from "@/components/profile/ProfileBio";
@@ -11,7 +12,12 @@ import ProfileBlockedUsers from "@/components/profile/ProfileBlockedUsers";
 import ProfileSection from "@/components/profile/ProfileSection";
 
 export default function ProfilePage() {
-    const { status, profile } = useProfileContext();
+    const { status, profile, refetch } = useProfileContext();
+
+    async function handleLogout() {
+        await logout();
+        await refetch();
+    }
 
     if (status === "loading" || !profile) {
         return (
@@ -56,6 +62,15 @@ export default function ProfilePage() {
                 <ProfileSection>
                     <ProfileBlockedUsers />
                 </ProfileSection>
+
+                <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex items-center justify-center gap-2 rounded-3xl px-4 py-3 font-medium text-pink transition bg-pink/15 md:hidden"
+                >
+                    <LogOut className="h-5 w-5" />
+                    Log out
+                </button>
             </div>
         </div>
     );
