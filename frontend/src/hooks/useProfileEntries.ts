@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { getVisits, type Visit } from "@/api/profile";
 
-export function useProfileVisits() {
-    const [visits, setVisits] = useState<Visit[]>([]);
+export function useProfileEntries<T>(fetcher: () => Promise<Response>) {
+    const [entries, setEntries] = useState<T[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState(false);
 
     const load = useCallback(() => {
         setIsLoading(true);
         setLoadError(false);
-        getVisits()
+        fetcher()
             .then(async (res) => {
                 if (!res.ok) {
                     setLoadError(true);
                     return;
                 }
                 const data = await res.json();
-                if (Array.isArray(data)) setVisits(data);
+                if (Array.isArray(data)) setEntries(data);
             })
             .catch(() => setLoadError(true))
             .finally(() => setIsLoading(false));
-    }, []);
+    }, [fetcher]);
 
     useEffect(() => {
         load();
     }, [load]);
 
-    return { visits, isLoading, loadError, retry: load };
+    return { entries, isLoading, loadError, retry: load };
 }
