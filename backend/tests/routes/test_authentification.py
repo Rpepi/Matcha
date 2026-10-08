@@ -365,13 +365,65 @@ class TestVerifyEmailRoute:
     async def test_valid_token_verifies_user(self, client, mock_db, mock_cursor):
         from app.security.token import generate_verification_token
         token = generate_verification_token("42", "alice@test.com")
-        mock_cursor.fetchone = AsyncMock(return_value={"email": "alice@test.com"})
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "alice@test.com", "pending_email": None})
 
         resp = await client.get(f"/auth/verify?token={token}")
 
         assert resp.status_code == 200
         assert mock_db.execute.call_count == 2
         assert "UPDATE users SET verified" in str(mock_db.execute.call_args_list[-1])
+
+    async def test_token_for_the_pending_address_replaces_the_email(self, client, mock_db, mock_cursor):
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "new@test.com")
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "old@test.com", "pending_email": "new@test.com"})
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Email address changed."
+        query, params = mock_db.execute.call_args_list[-1].args
+        assert "email = pending_email" in query and "pending_email = NULL" in query and "verified = true" in query
+        assert params == ("42",)
+        mock_db.commit.assert_awaited_once()
+
+    async def test_the_pending_address_is_the_one_that_is_checked_not_the_old_email(self, client, mock_db, mock_cursor):
+        """Confirming the sign-up address while another one is pending still verifies the account."""
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "old@test.com")
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "old@test.com", "pending_email": "new@test.com"})
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 200
+        assert "UPDATE users SET verified" in str(mock_db.execute.call_args_list[-1])
+
+    async def test_token_of_a_cancelled_or_replaced_address_is_rejected(self, client, mock_db, mock_cursor):
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "typo@tset.com")
+        # The user cancelled, or replaced it by another address.
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "old@test.com", "pending_email": "other@test.com"})
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 400
+        assert mock_db.execute.call_count == 1  # only the SELECT
+        mock_db.commit.assert_not_called()
+
+    async def test_pending_address_taken_meanwhile_is_409_and_rolled_back(self, client, mock_db, mock_cursor):
+        from psycopg.errors import UniqueViolation
+        from app.security.token import generate_verification_token
+        token = generate_verification_token("42", "new@test.com")
+        select = AsyncMock()
+        select.fetchone = AsyncMock(return_value={"email": "old@test.com", "pending_email": "new@test.com"})
+        mock_db.execute = AsyncMock(side_effect=[select, UniqueViolation("duplicate key")])
+
+        resp = await client.get(f"/auth/verify?token={token}")
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == "Email already taken"
+        mock_db.rollback.assert_awaited_once()
+        mock_db.commit.assert_not_called()
 
     async def test_missing_token_returns_400(self, client):
         resp = await client.get("/auth/verify")
@@ -418,7 +470,7 @@ class TestVerifyEmailRoute:
         currently on the account."""
         from app.security.token import generate_verification_token
         token = generate_verification_token("42", "old@test.com")
-        mock_cursor.fetchone = AsyncMock(return_value={"email": "new@test.com"})
+        mock_cursor.fetchone = AsyncMock(return_value={"email": "new@test.com", "pending_email": None})
 
         resp = await client.get(f"/auth/verify?token={token}")
 
