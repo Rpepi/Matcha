@@ -1,4 +1,4 @@
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useRef, useState, type SubmitEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "@/api/auth";
 import { useToast } from "@/context/ToastContext";
@@ -10,13 +10,21 @@ export default function ResetPasswordPage() {
     const token = searchParams.get("token");
     const [password, setPassword] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [isDone, setIsDone] = useState(false);
     const navigate = useNavigate();
     const { showNotice } = useToast();
     const [formError, setFormError] = useState("");
+    const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+        };
+    }, []);
 
     async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (isLoading || !token) return;
+        if (isLoading || isDone || !token) return;
         setIsLoading(true);
         setFormError("");
 
@@ -25,8 +33,9 @@ export default function ResetPasswordPage() {
             const data = await response.json().catch(() => null);
 
             if (response.ok) {
+                setIsDone(true);
                 showNotice(data?.message ?? "Password updated. You can now log in.");
-                setTimeout(() => navigate("/login"), 3000);
+                redirectTimerRef.current = setTimeout(() => navigate("/login"), 3000);
                 return;
             }
 
@@ -65,7 +74,7 @@ export default function ResetPasswordPage() {
 
                     <FormNotice>{formError}</FormNotice>
 
-                    <Button disabled={!password || isLoading} type="submit" className="mt-2">
+                    <Button disabled={!password || isLoading || isDone} type="submit" className="mt-2">
                         {isLoading ? "Resetting…" : "Reset password"}
                     </Button>
                 </form>
