@@ -62,7 +62,7 @@ export default function ProfilePage() {
                 </ProfileSection>
 
                 <ProfileSection>
-                    <ProfileEmail email={profile.email} />
+                    <ProfileEmail profile={profile} />
                 </ProfileSection>
 
                 <ProfileSection>
