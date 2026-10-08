@@ -1,6 +1,7 @@
 import { Loader2, Eye, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useProfileContext } from "@/context/ProfileContext";
+import { useToast } from "@/context/ToastContext";
 import { logout } from "@/api/auth";
 import ProfilePhotos from "@/components/profile/ProfilePhotos";
 import ProfileDetails from "@/components/profile/ProfileDetails";
@@ -13,10 +14,19 @@ import ProfileSection from "@/components/profile/ProfileSection";
 
 export default function ProfilePage() {
     const { status, profile, refetch } = useProfileContext();
+    const { showError } = useToast();
 
     async function handleLogout() {
-        await logout();
-        await refetch();
+        try {
+            const response = await logout();
+            if (!response.ok) {
+                showError("Could not log out. Please try again.");
+                return;
+            }
+            await refetch();
+        } catch {
+            showError("Could not log out. Please check your connection and try again.");
+        }
     }
 
     if (status === "loading" || !profile) {
