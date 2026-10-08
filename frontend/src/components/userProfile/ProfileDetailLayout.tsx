@@ -10,6 +10,7 @@ import OnlineStatus from "@/components/userProfile/OnlineStatus";
 interface ProfileDetailLayoutProps {
     profile: {
         id: number;
+        username: string;
         first_name: string;
         birth_date: string | null;
         fame_rating: number;
@@ -18,6 +19,7 @@ interface ProfileDetailLayoutProps {
         bio: string | null;
         tags: string[];
         is_online: boolean;
+        last_seen: string | null;
         photos: UserPhoto[];
     };
     myTags: string[];
