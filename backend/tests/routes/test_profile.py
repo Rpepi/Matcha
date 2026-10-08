@@ -19,7 +19,8 @@ PROFILE_ROW = {
 }
 
 
-INCOMPLETE_PROFILE_ROW = {"gender": None, "birth_date": None, "city": None, "latitude": None, "longitude": None}
+INCOMPLETE_PROFILE_ROW = {"gender": None, "birth_date": None, "city": None, "latitude": None, "longitude": None,
+                          "email": "alice@test.com", "auth_provider": "email"}
 
 
 def make_cursor(fetchone=None, fetchall=None):
@@ -46,6 +47,21 @@ class TestGetProfileMe:
         assert data["tags"] == ["hiking", "music"]
         assert len(data["photos"]) == 1
         assert data["photos"][0]["path"] == "/photos/1.jpg"
+
+    async def test_returns_pending_email_and_auth_provider(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={**PROFILE_ROW, "pending_email": "new@test.com", "auth_provider": "email"}),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+        ])
+
+        res = await auth_client.get("/profile/me")
+
+        query = mock_db.execute.await_args_list[0].args[0]
+        assert "pending_email" in query and "auth_provider" in query
+        assert res.json()["pending_email"] == "new@test.com"
+        assert res.json()["auth_provider"] == "email"
 
     async def test_query_selects_the_username(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -148,11 +164,12 @@ class TestPutProfileMe:
         res = await auth_client.put("/profile/me", json={"last_name": 42})
         assert res.status_code == 400
 
-    async def test_update_email_resets_verified_and_sends_email(self, auth_client, mock_db, mock_redis):
+    async def test_new_email_is_only_stored_as_pending_and_mailed(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
-            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
-            make_cursor(),
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),  # current profile
+            make_cursor(fetchone=None),                    # nobody else uses that address
+            make_cursor(),                                 # UPDATE
         ])
 
         with patch("app.routes.profile.generate_verification_token", return_value="tok123") as mock_token, \
@@ -163,8 +180,12 @@ class TestPutProfileMe:
         mock_token.assert_called_once_with("1", "new@test.com")
         mock_send.assert_called_once_with("new@test.com", "tok123")
 
-        executed_sql = mock_db.execute.call_args_list[-1][0][0]
-        assert "verified" in executed_sql
+        query, params = mock_db.execute.call_args_list[-1].args
+        assert "pending_email = %s" in query
+        assert "new@test.com" in params
+        assert "email = %s" not in query.replace("pending_email = %s", "")  # the real email is untouched
+        assert "verified" not in query                                      # and the account stays verified
+        mock_db.commit.assert_awaited_once()
 
     async def test_verification_email_is_sent_off_the_event_loop(self, auth_client, mock_db, mock_redis):
         """send_verification_email is blocking smtplib (10 s timeout): it must
@@ -173,6 +194,7 @@ class TestPutProfileMe:
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone=None),
             make_cursor(),
         ])
         sender_threads = []
@@ -189,11 +211,12 @@ class TestPutProfileMe:
         assert sender_threads[0] is not threading.current_thread()
 
     async def test_email_send_failure_still_reports_the_committed_update(self, auth_client, mock_db, mock_redis):
-        """The email change is committed (and `verified` reset) before the mail
-        goes out, so an SMTP failure must not turn into a 500."""
+        """The pending address is committed before the mail goes out, so an
+        SMTP failure must not turn into a 500."""
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone=None),
             make_cursor(),
         ])
 
@@ -217,6 +240,72 @@ class TestPutProfileMe:
 
         assert res.status_code == 200
         assert res.json()["message"] == "profile updated"
+        mock_send.assert_not_called()
+
+    async def test_email_stays_the_login_email_until_confirmed(self, auth_client, mock_db, mock_redis):
+        """The whole point: a typo in the new address must not lock the user out."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone=None),
+            make_cursor(),
+        ])
+        with patch("app.routes.profile.send_verification_email"):
+            await auth_client.put("/profile/me", json={"email": "typo@tset.com", "bio": "hi"})
+
+        update_query = mock_db.execute.call_args_list[-1].args[0]
+        assert "SET bio = %s, pending_email = %s" in " ".join(update_query.split())
+
+    async def test_google_account_cannot_change_email(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={**INCOMPLETE_PROFILE_ROW, "auth_provider": "google"}),
+        ])
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.put("/profile/me", json={"email": "new@test.com", "bio": "hi"})
+
+        assert res.status_code == 403
+        assert "Google" in res.json()["detail"]
+        assert mock_db.execute.await_count == 1  # nothing written, not even the bio
+        mock_db.commit.assert_not_called()
+        mock_send.assert_not_called()
+
+    async def test_google_account_can_still_edit_everything_else(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={**INCOMPLETE_PROFILE_ROW, "auth_provider": "google"}),
+            make_cursor(),
+        ])
+        res = await auth_client.put("/profile/me", json={"bio": "hi"})
+        assert res.status_code == 200
+
+    async def test_address_used_by_another_account_is_409_and_nothing_is_sent(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone={"?column?": 1}),         # taken
+        ])
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.put("/profile/me", json={"email": "taken@test.com"})
+
+        assert res.status_code == 409
+        assert res.json()["detail"] == "Email already taken"
+        assert mock_db.execute.await_count == 2  # no UPDATE
+        mock_send.assert_not_called()
+
+    @pytest.mark.parametrize("typed", ["alice@test.com", "ALICE@test.com"])
+    async def test_typing_the_current_address_cancels_a_pending_change(self, auth_client, mock_db, mock_redis, typed):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(),
+        ])
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.put("/profile/me", json={"email": typed})
+
+        assert res.status_code == 200
+        query, params = mock_db.execute.call_args_list[-1].args
+        assert "pending_email = %s" in query and None in params
         mock_send.assert_not_called()
 
     async def test_empty_email_returns_400(self, auth_client, mock_redis):
@@ -1113,3 +1202,137 @@ class TestDeleteTag:
     async def test_no_cookie_returns_401(self, client):
         res = await client.delete("/profile/tags/sport")
         assert res.status_code == 401
+
+
+class TestCancelPendingEmail:
+    async def test_clears_the_pending_address_and_commits(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor())
+
+        res = await auth_client.delete("/profile/pending-email")
+
+        assert res.status_code == 200
+        query, params = mock_db.execute.await_args.args
+        assert "pending_email = NULL" in query
+        assert "email = " not in query.replace("pending_email = NULL", "")
+        assert [int(p) for p in params] == [1]
+        mock_db.commit.assert_awaited_once()
+
+    async def test_is_harmless_when_nothing_is_pending(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor())
+        assert (await auth_client.delete("/profile/pending-email")).status_code == 200
+
+    async def test_no_cookie_returns_401(self, client):
+        assert (await client.delete("/profile/pending-email")).status_code == 401
+
+
+class TestResendPendingEmail:
+    async def test_mails_the_link_again_to_the_pending_address(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"pending_email": "new@test.com"}))
+
+        with patch("app.routes.profile.generate_verification_token", return_value="tok") as mock_token, \
+             patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.post("/profile/pending-email/resend")
+
+        assert res.status_code == 200
+        mock_token.assert_called_once_with("1", "new@test.com")
+        mock_send.assert_called_once_with("new@test.com", "tok")
+
+    async def test_nothing_pending_is_404_and_nothing_is_sent(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"pending_email": None}))
+
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.post("/profile/pending-email/resend")
+
+        assert res.status_code == 404
+        mock_send.assert_not_called()
+
+    async def test_smtp_failure_is_503(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(return_value=make_cursor(fetchone={"pending_email": "new@test.com"}))
+
+        with patch("app.routes.profile.send_verification_email", side_effect=OSError("smtp down")):
+            res = await auth_client.post("/profile/pending-email/resend")
+
+        assert res.status_code == 503
+
+    async def test_no_cookie_returns_401(self, client):
+        assert (await client.post("/profile/pending-email/resend")).status_code == 401
+
+
+class TestConfirmationMailBudget:
+    """Mails go to an address the user typed and need not own: they are capped per account."""
+
+    @staticmethod
+    def script_refusing(scope_fragment: str, retry_after: int = 1200):
+        async def script(keys, args):
+            return [0, 0, retry_after] if scope_fragment in keys[0] else [1, 999, 0]
+        return AsyncMock(side_effect=script)
+
+    @staticmethod
+    def use_script(auth_client, script):
+        auth_client._transport.app.state.rate_limit_script = script
+
+    async def test_new_address_over_budget_is_429_and_nothing_is_written_or_sent(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        self.use_script(auth_client, self.script_refusing("email-mail"))
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone=None),
+        ])
+
+        with patch("app.routes.profile.send_verification_email") as mock_send:
+            res = await auth_client.put("/profile/me", json={"email": "new@test.com", "bio": "hi"})
+
+        assert res.status_code == 429
+        assert res.headers["retry-after"] == "1200"
+        assert mock_db.execute.await_count == 2  # no UPDATE: the bio is not saved either
+        mock_db.commit.assert_not_called()
+        mock_send.assert_not_called()
+
+    async def test_the_budget_is_per_account_and_shared_with_the_resend_route(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        script = AsyncMock(return_value=[1, 999, 0])
+        self.use_script(auth_client, script)
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone=None),
+            make_cursor(),
+            make_cursor(fetchone={"pending_email": "new@test.com"}),
+        ])
+
+        with patch("app.routes.profile.send_verification_email"):
+            await auth_client.put("/profile/me", json={"email": "new@test.com"})
+            await auth_client.post("/profile/pending-email/resend")
+
+        email_calls = [c for c in script.await_args_list if c.kwargs["keys"][0].startswith("rl:email-mail")]
+        assert [c.kwargs["keys"][0] for c in email_calls] == ["rl:email-mail:account:1"] * 2  # one bucket
+        assert all(c.kwargs["args"][0] == 5 for c in email_calls)                              # of 5
+
+    async def test_edits_without_a_new_address_never_touch_the_mail_budget(self, auth_client, mock_db, mock_redis):
+        mock_redis.get = AsyncMock(return_value="1")
+        script = AsyncMock(return_value=[1, 999, 0])
+        self.use_script(auth_client, script)
+        mock_db.execute = AsyncMock(side_effect=[make_cursor(fetchone=INCOMPLETE_PROFILE_ROW), make_cursor()])
+
+        await auth_client.put("/profile/me", json={"bio": "hi"})
+
+        assert not any("email-mail" in c.kwargs["keys"][0] for c in script.await_args_list)
+
+    async def test_a_refused_address_does_not_spend_the_budget(self, auth_client, mock_db, mock_redis):
+        """Taken addresses are refused before any mail is considered."""
+        mock_redis.get = AsyncMock(return_value="1")
+        script = AsyncMock(return_value=[1, 999, 0])
+        self.use_script(auth_client, script)
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=INCOMPLETE_PROFILE_ROW),
+            make_cursor(fetchone={"?column?": 1}),
+        ])
+
+        res = await auth_client.put("/profile/me", json={"email": "taken@test.com"})
+
+        assert res.status_code == 409
+        assert not any("email-mail" in c.kwargs["keys"][0] for c in script.await_args_list)

@@ -119,3 +119,25 @@ class TestMigrationRunner:
             run_migration()
 
         conn.close.assert_called_once()
+
+
+class TestPendingEmailColumn:
+    """pending_email holds an address the user typed and need not own."""
+
+    @staticmethod
+    def users_sql() -> str:
+        return (Path(__file__).resolve().parents[2] / "app" / "db" / "migrations" / "002_users.sql").read_text()
+
+    def test_column_exists(self):
+        assert "pending_email" in self.users_sql()
+
+    def test_pending_email_is_not_unique(self):
+        """A unique index would let anyone squat an address (and block its owner from
+        using it) just by typing it as a new email without ever confirming."""
+        sql = " ".join(line.split("--")[0] for line in self.users_sql().splitlines()).upper()
+        assert "UNIQUE INDEX" not in sql or "PENDING_EMAIL" not in sql.split("UNIQUE INDEX", 1)[1]
+        assert "PENDING_EMAIL VARCHAR(100) UNIQUE" not in sql
+
+    def test_auth_provider_is_limited_to_the_two_known_values(self):
+        sql = self.users_sql()
+        assert "auth_provider" in sql and "CHECK (auth_provider IN ('email', 'google'))" in sql
