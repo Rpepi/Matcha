@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Eye, Heart, Loader2, MessageCircle } from "lucide-react";
 import { useProfileContext } from "@/context/ProfileContext";
@@ -20,6 +20,24 @@ const TABS: { tab: Tab; to: string; label: string }[] = [
     { tab: "visitors", to: "/chat/visitors", label: "Visitors" },
     { tab: "likes", to: "/chat/likes", label: "Likes" },
 ];
+
+const EMPTY_STATE: Record<Tab, { icon: ReactNode; title: string; text: string }> = {
+    messages: {
+        icon: <MessageCircle className="h-8 w-8 text-ink" />,
+        title: "Your messages",
+        text: "Pick a conversation to read it and reply.",
+    },
+    visitors: {
+        icon: <Eye className="h-8 w-8 text-ink" />,
+        title: "Your visitors",
+        text: "Select someone to view their profile.",
+    },
+    likes: {
+        icon: <Heart className="h-8 w-8 text-ink" />,
+        title: "Your likes",
+        text: "Select someone to view their profile.",
+    },
+};
 
 function TabBar({ activeTab }: { activeTab: Tab }) {
     return (
@@ -155,30 +173,10 @@ export default function ChatPage() {
                 ) : (
                     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                         <span className="flex h-16 w-16 items-center justify-center rounded-full bg-matcha/25">
-                            {activeTab === "messages" ? (
-                                <MessageCircle className="h-8 w-8 text-ink" />
-                            ) : activeTab === "visitors" ? (
-                                <Eye className="h-8 w-8 text-ink" />
-                            ) : (
-                                <Heart className="h-8 w-8 text-ink" />
-                            )}
+                            {EMPTY_STATE[activeTab].icon}
                         </span>
-                        {activeTab === "messages" ? (
-                            <>
-                                <p className="font-display text-xl text-ink">Your messages</p>
-                                <p className="max-w-xs text-sm text-grey">Pick a conversation to read it and reply.</p>
-                            </>
-                        ) : activeTab === "visitors" ? (
-                            <>
-                                <p className="font-display text-xl text-ink">Your visitors</p>
-                                <p className="max-w-xs text-sm text-grey">Select someone to view their profile.</p>
-                            </>
-                        ) : (
-                            <>
-                                <p className="font-display text-xl text-ink">Your likes</p>
-                                <p className="max-w-xs text-sm text-grey">Select someone to view their profile.</p>
-                            </>
-                        )}
+                        <p className="font-display text-xl text-ink">{EMPTY_STATE[activeTab].title}</p>
+                        <p className="max-w-xs text-sm text-grey">{EMPTY_STATE[activeTab].text}</p>
                     </div>
                 )}
             </section>
