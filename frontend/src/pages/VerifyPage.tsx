@@ -16,15 +16,19 @@ export default function VerifyPage() {
             if (hasRequested.current === false)
             {
                 hasRequested.current = true
-                const response = await fetch(`/api/auth/verify?token=${token}`, {
-                    method: 'GET',
-                    headers: {'Content-Type' : 'application/json'}
-                });
-            
-                if (response.ok)
-                    setInfo("Email verified! you can close this page.");
-                else
-                    setError("Error verifiyng email, Try again!");
+                try {
+                    const response = await fetch(`/api/auth/verify?token=${token}`, {
+                        method: 'GET',
+                        headers: {'Content-Type' : 'application/json'}
+                    });
+
+                    if (response.ok)
+                        setInfo("Email verified! you can close this page.");
+                    else
+                        setError("Error verifiyng email, Try again!");
+                } catch {
+                    setError("Could not verify your email. Please check your connection and try again.");
+                }
             }
         };
         verify();

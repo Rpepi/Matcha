@@ -23,6 +23,7 @@ export default function TagsStep({ tags, setTags, onBack, onNext }: TagsStepProp
                 const data = await res.json();
                 if (Array.isArray(data.tags)) setAvailableTags(data.tags);
             })
+            .catch(() => {})
             .finally(() => setIsLoadingTags(false));
     }, []);
 

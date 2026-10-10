@@ -7,6 +7,7 @@ import { logout } from "../api/auth";
 import { useProfileContext } from "../context/ProfileContext";
 import { useChatContext } from "../context/ChatContext";
 import { useNotificationContext } from "@/context/NotificationContext";
+import { useToast } from "../context/ToastContext";
 
 const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/browse", icon: Search, label: "Browse" },
@@ -36,10 +37,19 @@ export default function Sidebar() {
     const { refetch } = useProfileContext();
     const { unreadTotal } = useChatContext();
     const {unreadCount} = useNotificationContext();
+    const { showError } = useToast();
 
     async function handleLogout() {
-        await logout();
-        await refetch();
+        try {
+            const response = await logout();
+            if (!response.ok) {
+                showError("Could not log out. Please try again.");
+                return;
+            }
+            await refetch();
+        } catch {
+            showError("Could not log out. Please check your connection and try again.");
+        }
     }
 
     return (

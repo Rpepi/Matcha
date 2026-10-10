@@ -32,15 +32,19 @@ export default function LoginPage() {
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const response = await login(username.trim(), password)
-        if (response.ok) {
-            const data = await response.json();
-            await refetch();
-            navigate(data.profile_complete ? '/browse' : '/complete-profile');
-        }
-        else {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? 'Invalid username or password')
+        try {
+            const response = await login(username.trim(), password)
+            if (response.ok) {
+                const data = await response.json();
+                await refetch();
+                navigate(data.profile_complete ? '/browse' : '/complete-profile');
+            }
+            else {
+                const data = await response.json().catch(() => null);
+                showError(data?.detail ?? 'Invalid username or password')
+            }
+        } catch {
+            showError('Could not log in. Please check your connection and try again.');
         }
     }
 
