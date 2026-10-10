@@ -11,7 +11,7 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.token import generate_verification_token, send_verification_email
-from app.security.rate_limiter.rate_limit import rate_limit
+from app.security.rate_limiter.rate_limit import rate_limit, consume
 from app.utils import require_json, is_valid_image, process_photo
 from app.validation import (
     clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
@@ -23,6 +23,13 @@ from app.log import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+# Confirmation mails go to an address the user typed and need not own, so sending them
+# is capped per account: by PUT /profile/me (a new address) and by the resend route,
+# which draw from the same bucket. Without a shared cap, repeating the PUT would
+# bypass the resend limit and turn the app into a mail cannon.
+EMAIL_MAIL_SCOPE = "email-mail"
+EMAIL_MAIL_PER_HOUR = 5
 
 
 # The visitors and likes lists show at most this many people, newest first.
@@ -43,8 +50,10 @@ NOT_A_BLOCKED_VISITOR = """
 async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return the current user's own profile.
 
-    Includes private fields (email, coordinates, ``profile_complete``,
-    ``created_at``) as well as the tag names and the photos.
+    Includes private fields (email, ``pending_email`` the new address still
+    waiting for its confirmation link or None, ``auth_provider`` ``email`` or
+    ``google``, coordinates, ``profile_complete``, ``created_at``) as well as
+    the tag names and the photos.
 
     Args:
         request: Incoming request, carrying the ``session`` cookie.
@@ -62,7 +71,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
-        SELECT id, email, username, first_name, last_name,
+        SELECT id, email, pending_email, auth_provider, username, first_name, last_name,
         gender, orientation, bio, birth_date, fame_rating,
         latitude, longitude, city, is_online, last_seen,
         profile_complete, created_at FROM users WHERE id = %s
@@ -103,8 +112,14 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     contain control characters (newlines are allowed in ``bio``). The
     profile becomes complete once
     gender, birth date and a location (city or coordinates) are all set.
-    Changing the email marks the account unverified and sends a new
-    verification email to the new address. The email is sent after the
+    Changing the email does **not** change it yet: the new address is stored
+    as ``pending_email`` and a confirmation link is mailed to it; ``email``
+    (and so login and password recovery) stays as it was until that link is
+    clicked (``GET /auth/verify``), so a typo cannot lock the user out. Typing
+    the current address again cancels a pending change. Accounts created with
+    Google sign-in cannot change their email. A new address costs one of the
+    5 confirmation mails per hour an account may trigger (shared with
+    ``POST /profile/pending-email/resend``). The email is sent after the
     commit: if it cannot be sent the update still stands and the response
     message says so (still a 200).
 
@@ -114,15 +129,19 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         conn: Database connection (injected dependency).
 
     Returns:
-        ``{"message": "profile updated"}``, or, when the email changed but
-        the verification mail could not be sent, ``{"message": "profile
-        updated, but the verification email could not be sent"}``.
+        ``{"message": "profile updated"}``, or, when the new address was
+        stored but the confirmation mail could not be sent, ``{"message":
+        "profile updated, but the verification email could not be sent"}``
+        (``POST /profile/pending-email/resend`` tries again).
 
     Raises:
         HTTPException: 400 if no field is given, a value is invalid or too
             long, or the body is not a JSON object; 401 if not
-            authenticated; 409 if the email or the username is already
-            taken; 413 if the body is too large; 500 if the update fails.
+            authenticated; 403 if the account was created with Google and
+            an email is given; 409 if the email or the username is already
+            taken; 413 if the body is too large; 429 if a new email is given
+            and the account already triggered 5 confirmation mails this hour;
+            500 if the update fails.
     """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
@@ -163,18 +182,46 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             raise HTTPException(status_code=400, detail="Minimum age is 16 years old")
         updates["birth_date"] = birth_date
 
-    email_changed = "email" in updates
+    # The email is not an ordinary column: it becomes `pending_email` below.
+    new_email = updates.pop("email", None)
+    email_changed = False
 
     if tags is not None:
         tags = await _validate_tags(conn, tags)
 
     try:
-        if updates:
+        if updates or new_email is not None:
             cursor = await conn.execute(
-                "SELECT gender, birth_date, city, latitude, longitude FROM users WHERE id = %s",
+                "SELECT gender, birth_date, city, latitude, longitude, email, auth_provider FROM users WHERE id = %s",
                 (user_id,)
             )
             current = await cursor.fetchone()
+
+            if new_email is not None:
+                if current["auth_provider"] != "email":
+                    raise HTTPException(status_code=403, detail="Accounts created with Google sign-in cannot change their email")
+                if new_email.lower() == current["email"].lower():
+                    updates["pending_email"] = None  # the current address again: cancels a pending change
+                else:
+                    cursor = await conn.execute(
+                        "SELECT 1 FROM users WHERE email = %s AND id <> %s", (new_email, user_id)
+                    )
+                    if await cursor.fetchone() is not None:
+                        raise HTTPException(status_code=409, detail="Email already taken")
+                    allowed, retry_after = await consume(
+                        request.app.state.rate_limit_script,
+                        f"rl:{EMAIL_MAIL_SCOPE}:account:{user_id}",
+                        EMAIL_MAIL_PER_HOUR,
+                        3600,
+                    )
+                    if not allowed:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Too many email changes, try again later",
+                            headers={"Retry-After": str(retry_after)},
+                        )
+                    updates["pending_email"] = new_email
+                    email_changed = True
 
             effective_gender = updates.get("gender", current["gender"])
             effective_birth_date = updates.get("birth_date", current["birth_date"])
@@ -186,8 +233,6 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             if effective_gender and effective_birth_date and has_location:
                 updates["profile_complete"] = True
 
-            if email_changed:
-                updates["verified"] = False
             set_clause = ", ".join(f"{k} = %s" for k in updates.keys())
             values = list(updates.values())
             await conn.execute(
@@ -208,16 +253,75 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         raise HTTPException(status_code=500, detail="failed to update profile")
 
     if email_changed:
-        token = generate_verification_token(str(user_id), updates["email"])
+        token = generate_verification_token(str(user_id), new_email)
         try:
-            await asyncio.to_thread(send_verification_email, updates["email"], token)
+            await asyncio.to_thread(send_verification_email, new_email, token)
         except Exception:
-            # The email change is already committed and `verified` is reset:
-            # a 500 here would hide that from the client, so report the
-            # partial success instead (_send_email already logged the cause).
+            # The pending address is already committed: a 500 here would hide
+            # that from the client, so report the partial success instead
+            # (_send_email already logged the cause).
             return {"message": "profile updated, but the verification email could not be sent"}
 
     return {"message": "profile updated"}
+
+
+@router.delete("/profile/pending-email")
+async def cancel_pending_email(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Drop the email change that is waiting for its confirmation link.
+
+    The account keeps its current ``email``; the link already mailed stops
+    working (it only confirms the address that is pending). Calling it with
+    nothing pending is harmless.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "pending email cancelled"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    await conn.execute("UPDATE users SET pending_email = NULL WHERE id = %s", (user_id,))
+    await conn.commit()
+    return {"message": "pending email cancelled"}
+
+
+@router.post("/profile/pending-email/resend", dependencies=[Depends(rate_limit(EMAIL_MAIL_SCOPE, limit=EMAIL_MAIL_PER_HOUR, seconds=3600, by="account"))])
+async def resend_pending_email(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Mail the confirmation link of the pending email again.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "confirmation email sent"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 404 if no email change is
+            pending; 429 over 5 confirmation mails per hour (shared with a
+            new address in ``PUT /profile/me``); 503 if the mail cannot be
+            sent.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    cursor = await conn.execute("SELECT pending_email FROM users WHERE id = %s", (user_id,))
+    row = await cursor.fetchone()
+    if row is None or row["pending_email"] is None:
+        raise HTTPException(status_code=404, detail="no email change is pending")
+
+    token = generate_verification_token(str(user_id), row["pending_email"])
+    try:
+        await asyncio.to_thread(send_verification_email, row["pending_email"], token)
+    except Exception:
+        raise HTTPException(status_code=503, detail="could not send the email, try again later")
+    return {"message": "confirmation email sent"}
 
 
 @router.put("/profile/location")

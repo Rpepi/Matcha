@@ -36,23 +36,27 @@ export default function RegisterPage() {
         if (isLoading)
             return;
         setIsLoading(true)
-        const response = await register(password, email, username.trim(), first_name, last_name);
+        try {
+            const response = await register(password, email, username.trim(), first_name, last_name);
 
-        if (response.ok)
-        {
-            showNotice('Account created successfully — check your email to verify your account.');
-            setTimeout(() => navigate('/login'), 3000);
-            return ;
-        }
-        else
-        {
-            try {
-                const data = await response.json();
-                showError(data.detail || 'Invalid or missing field.');
+            if (response.ok)
+            {
+                showNotice('Account created successfully — check your email to verify your account.');
+                setTimeout(() => navigate('/login'), 3000);
+                return ;
             }
-            catch {
-                showError(`Server error (${response.status}). Please try again`);
+            else
+            {
+                try {
+                    const data = await response.json();
+                    showError(data.detail || 'Invalid or missing field.');
+                }
+                catch {
+                    showError(`Server error (${response.status}). Please try again`);
+                }
             }
+        } catch {
+            showError('Could not create your account. Please check your connection and try again.');
         }
         setIsLoading(false);
     }

@@ -218,8 +218,8 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
             username = await generate_username(conn, first_name)
             try:
                 cursor = await conn.execute(
-                    "INSERT INTO users (email, username, first_name, last_name, password_hash, verified) "
-                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, profile_complete",
+                    "INSERT INTO users (email, username, first_name, last_name, password_hash, verified, auth_provider) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, 'google') RETURNING id, profile_complete",
                     (email, username, first_name, last_name, password_hash, True),
                 )
             except UniqueViolation as e:
@@ -247,7 +247,7 @@ async def oauth_callback(request: Request, redis: redis.Redis = Depends(get_redi
             response = RedirectResponse(f"{FRONTEND_URL}/complete-profile")
         else:
             password_hash = await hash_password(secrets.token_urlsafe(32))
-            cursor = await conn.execute("""UPDATE users SET first_name= %s, last_name = %s, password_hash = %s, verified = %s where id = %s""",
+            cursor = await conn.execute("""UPDATE users SET first_name= %s, last_name = %s, password_hash = %s, verified = %s, auth_provider = 'google' where id = %s""",
                 (first_name, last_name, password_hash, True, user_id)
             )
             await conn.commit()

@@ -5,6 +5,10 @@ export type AuthStatus = 'loading' | 'guest' | 'incomplete' | 'complete';
 export interface Profile {
     id: number;
     email: string;
+    /** A new address waiting for its confirmation link; `email` stays the active one until then. */
+    pending_email: string | null;
+    /** `google` accounts cannot change their email (Google finds the account by it). */
+    auth_provider: "email" | "google";
     username: string;
     first_name: string;
     last_name: string;

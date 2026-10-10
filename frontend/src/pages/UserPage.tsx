@@ -2,12 +2,9 @@ import { useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useProfileContext } from "@/context/ProfileContext";
-import ProfilePhotoGallery from "@/components/userProfile/ProfilePhotoGallery";
-import ProfileHeader from "@/components/userProfile/ProfileHeader";
-import ProfileMeta from "@/components/userProfile/ProfileMeta";
+import ProfileDetailLayout from "@/components/userProfile/ProfileDetailLayout";
 import ProfileActions from "@/components/userProfile/ProfileActions";
-import ProfileAbout from "@/components/userProfile/ProfileAbout";
-import ProfileInterests from "@/components/userProfile/ProfileInterests";
+import ReportMenu from "@/components/userProfile/ReportMenu";
 
 export default function UserPage() {
     const { id } = useParams<{ id: string }>();
@@ -32,26 +29,14 @@ export default function UserPage() {
     }
 
     return (
-        <div className="mx-auto flex max-w-6xl flex-col gap-10 p-6 lg:min-h-dvh lg:flex-row lg:items-center lg:gap-16 lg:p-16">
-            <ProfilePhotoGallery
-                profile={profile}
-                photoUrl={(photo) => `/api/users/${profile.id}/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`}
-                backTo="/browse"
-                backLabel="Back to Browse"
-            />
-
-            <div className="flex min-w-0 flex-1 flex-col gap-10">
-                <div className="flex flex-col gap-5">
-                    <ProfileHeader profile={profile} />
-                    <ProfileMeta profile={profile} />
-                    <ProfileActions profile={profile} />
-                </div>
-
-                <div className="h-px bg-grey/20" />
-
-                <ProfileAbout bio={profile.bio} />
-                <ProfileInterests tags={profile.tags} myTags={myProfile?.tags ?? []} />
-            </div>
-        </div>
+        <ProfileDetailLayout
+            profile={profile}
+            myTags={myProfile?.tags ?? []}
+            photoUrl={(photo) => `/api/users/${profile.id}/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`}
+            backTo="/browse"
+            backLabel="Back to Browse"
+            topRight={<ReportMenu userId={profile.id} firstName={profile.first_name} />}
+            actions={<ProfileActions profile={profile} />}
+        />
     );
 }

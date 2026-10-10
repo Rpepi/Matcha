@@ -70,13 +70,18 @@ export function useOnboarding() {
 
     async function saveStep(fields: Parameters<typeof updateProfile>[0]): Promise<boolean> {
         setError('');
-        const response = await updateProfile(fields);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Could not save. Please try again.');
+        try {
+            const response = await updateProfile(fields);
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                setError(data?.detail ?? 'Could not save. Please try again.');
+                return false;
+            }
+            return true;
+        } catch {
+            setError('Could not save. Please check your connection and try again.');
             return false;
         }
-        return true;
     }
 
     async function handleGenderNext() {
@@ -93,13 +98,17 @@ export function useOnboarding() {
 
     async function handleTagsNext() {
         setError('');
-        const response = await updateTags(tags);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Could not save your tags. Please try again.');
-            return;
+        try {
+            const response = await updateTags(tags);
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                setError(data?.detail ?? 'Could not save your tags. Please try again.');
+                return;
+            }
+            goNext();
+        } catch {
+            setError('Could not save your tags. Please check your connection and try again.');
         }
-        goNext();
     }
 
     function HandleUseLocation(): Promise<string | null> {
@@ -160,50 +169,58 @@ export function useOnboarding() {
         const usedPositions = photos.map((p) => p.position);
         const nextPosition = [1, 2, 3, 4, 5].find((p) => !usedPositions.includes(p));
 
-        const response = await uploadPhotoApi(file);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Could not upload photo. Please try again.');
-            setIsUploadingPhoto(false);
-            return;
-        }
+        try {
+            const response = await uploadPhotoApi(file);
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                setError(data?.detail ?? 'Could not upload photo. Please try again.');
+                return;
+            }
 
-        if (nextPosition !== undefined) {
-            setPhotos((prev) => [...prev, { position: nextPosition, url: URL.createObjectURL(file) }]);
+            if (nextPosition !== undefined) {
+                setPhotos((prev) => [...prev, { position: nextPosition, url: URL.createObjectURL(file) }]);
+            }
+        } catch {
+            setError('Could not upload photo. Please check your connection and try again.');
+        } finally {
+            setIsUploadingPhoto(false);
         }
-        setIsUploadingPhoto(false);
     }
 
     async function deletePhoto(position: number) {
         setError('');
-        const response = await deletePhotoApi(position);
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Could not delete photo. Please try again.');
-            return;
-        }
-
-        const remaining = photos
-            .filter((p) => p.position !== position)
-            .sort((a, b) => a.position - b.position);
-
-        const compacted: OnboardingPhoto[] = [];
-        for (const photo of remaining) {
-            if (photo.position <= position) {
-                compacted.push(photo);
-                continue;
-            }
-            const newPosition = photo.position - 1;
-            const moveResponse = await movePhotoApi(photo.position, newPosition);
-            if (!moveResponse.ok) {
-                const data = await moveResponse.json().catch(() => null);
-                setError(data?.detail ?? 'Could not reorder photos. Please try again.');
-                setPhotos([...compacted, ...remaining.slice(compacted.length)]);
+        try {
+            const response = await deletePhotoApi(position);
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                setError(data?.detail ?? 'Could not delete photo. Please try again.');
                 return;
             }
-            compacted.push({ ...photo, position: newPosition });
+
+            const remaining = photos
+                .filter((p) => p.position !== position)
+                .sort((a, b) => a.position - b.position);
+
+            const compacted: OnboardingPhoto[] = [];
+            for (const photo of remaining) {
+                if (photo.position <= position) {
+                    compacted.push(photo);
+                    continue;
+                }
+                const newPosition = photo.position - 1;
+                const moveResponse = await movePhotoApi(photo.position, newPosition);
+                if (!moveResponse.ok) {
+                    const data = await moveResponse.json().catch(() => null);
+                    setError(data?.detail ?? 'Could not reorder photos. Please try again.');
+                    setPhotos([...compacted, ...remaining.slice(compacted.length)]);
+                    return;
+                }
+                compacted.push({ ...photo, position: newPosition });
+            }
+            setPhotos(compacted);
+        } catch {
+            setError('Could not delete photo. Please check your connection and try again.');
         }
-        setPhotos(compacted);
     }
 
     function isAtLeast16(dateStr: string): boolean {
@@ -234,24 +251,28 @@ export function useOnboarding() {
         setError('');
         setIsLoading(true);
 
-        const response = await updateProfile({ city: city || null });
-        if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            setError(data?.detail ?? 'Could not save your profile. Please check your details and try again.');
-            setIsLoading(false);
-            return;
-        }
+        try {
+            const response = await updateProfile({ city: city || null });
+            if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                setError(data?.detail ?? 'Could not save your profile. Please check your details and try again.');
+                return;
+            }
 
-        const locationResponse = await updateLocation(latitude, longitude);
-        if (!locationResponse.ok) {
-            const data = await locationResponse.json().catch(() => null);
-            setError(data?.detail ?? 'Profile saved, but we could not save your location. You can add it later.');
-            setIsLoading(false);
-            return;
-        }
+            const locationResponse = await updateLocation(latitude, longitude);
+            if (!locationResponse.ok) {
+                const data = await locationResponse.json().catch(() => null);
+                setError(data?.detail ?? 'Profile saved, but we could not save your location. You can add it later.');
+                return;
+            }
 
-        await refetch();
-        navigate('/browse');
+            await refetch();
+            navigate('/browse');
+        } catch {
+            setError('Could not save your profile. Please check your connection and try again.');
+        } finally {
+            setIsLoading(false);
+        }
     }
 
     return {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { UserPhoto } from "@/api/users";
 import PhotoFallback from "@/components/PhotoFallback";
@@ -21,8 +21,18 @@ interface ProfilePhotoGalleryProps {
 
 export default function ProfilePhotoGallery({ profile, photoUrl, backTo, backLabel }: ProfilePhotoGalleryProps) {
     const [index, setIndex] = useState(0);
+    const navigate = useNavigate();
+    const location = useLocation();
     const photos = profile.photos;
     const count = photos.length || 1;
+
+    function handleBack() {
+        if (location.key !== "default") {
+            navigate(-1);
+        } else {
+            navigate(backTo);
+        }
+    }
 
     function goTo(next: number) {
         setIndex(((next % count) + count) % count);
@@ -42,9 +52,9 @@ export default function ProfilePhotoGallery({ profile, photoUrl, backTo, backLab
             )}
 
             <div className="absolute inset-x-4 top-4 flex items-center gap-3">
-                <Link to={backTo} aria-label={backLabel} className={buttonClasses}>
+                <button type="button" onClick={handleBack} aria-label={backLabel} className={buttonClasses}>
                     <ArrowLeft className="h-5 w-5" />
-                </Link>
+                </button>
             </div>
 
             <div className="absolute inset-x-4 bottom-4 flex flex-col gap-3">
