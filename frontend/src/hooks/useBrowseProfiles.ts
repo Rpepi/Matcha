@@ -6,14 +6,16 @@ import { DEFAULT_FILTERS, type BrowseFilters } from "../lib/browseFilters";
 const PAGE_SIZE = 20;
 
 interface Buffer {
-    old: BrowseProfile[];
-    new: BrowseProfile[];
+    items: BrowseProfile[];
     cursor: number;
+    direction: 1 | -1;
 }
+
+const EMPTY_BUFFER: Buffer = { items: [], cursor: 0, direction: 1 };
 
 export function useBrowseProfiles(itemsPerScreen: number) {
     const [filters, setFilters] = useState<BrowseFilters>(DEFAULT_FILTERS);
-    const [buffer, setBuffer] = useState<Buffer>({ old: [], new: [], cursor: 0 });
+    const [buffer, setBuffer] = useState<Buffer>(EMPTY_BUFFER);
     const [page, setPage] = useState(0);
     const [hasMore, setHasMore] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
@@ -21,7 +23,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     const [attempt, setAttempt] = useState(0);
     const { showError } = useToast();
 
-    const profiles = [...buffer.old, ...buffer.new];
+    const profiles = buffer.items;
     const atEnd = !hasMore && buffer.cursor + itemsPerScreen >= profiles.length;
 
     useEffect(() => {
@@ -39,15 +41,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
             })
             .then((batch) => {
                 if (cancelled) return;
-                setBuffer((prev) => {
-                    const evicted = prev.old.length > 0;
-                    return {
-                        old: prev.new,
-                        new: batch,
-                        // Everything before the cursor shifts by the size of the page dropped (not always PAGE_SIZE once a profile was removed).
-                        cursor: evicted ? Math.max(0, prev.cursor - prev.old.length) : prev.cursor,
-                    };
-                });
+                setBuffer((prev) => ({ ...prev, items: [...prev.items, ...batch] }));
                 setHasMore(batch.length === PAGE_SIZE);
             })
             .catch((err) => {
@@ -67,7 +61,7 @@ export function useBrowseProfiles(itemsPerScreen: number) {
 
     const applyFilters = useCallback((next: BrowseFilters) => {
         setFilters(next);
-        setBuffer({ old: [], new: [], cursor: 0 });
+        setBuffer(EMPTY_BUFFER);
         setHasMore(true);
         setPage(0);
     }, []);
@@ -75,11 +69,11 @@ export function useBrowseProfiles(itemsPerScreen: number) {
     /** Drops a profile from the loaded pages (blocked), keeping the reader on the same spot. */
     const removeProfile = useCallback((userId: number) => {
         setBuffer((prev) => {
-            const index = [...prev.old, ...prev.new].findIndex((p) => p.id === userId);
+            const index = prev.items.findIndex((p) => p.id === userId);
             if (index === -1) return prev;
             return {
-                old: prev.old.filter((p) => p.id !== userId),
-                new: prev.new.filter((p) => p.id !== userId),
+                ...prev,
+                items: prev.items.filter((p) => p.id !== userId),
                 cursor: index < prev.cursor ? prev.cursor - 1 : prev.cursor,
             };
         });
@@ -101,17 +95,25 @@ export function useBrowseProfiles(itemsPerScreen: number) {
             return;
         }
         setBuffer((prev) => {
-            const bufferedCount = prev.old.length + prev.new.length;
-            const wouldExceedBuffer = prev.cursor + itemsPerScreen >= bufferedCount;
+            const wouldExceedBuffer = prev.cursor + itemsPerScreen >= prev.items.length;
             if (wouldExceedBuffer && (isLoading || !hasMore)) return prev;
-            return { ...prev, cursor: prev.cursor + itemsPerScreen };
+            return { ...prev, cursor: prev.cursor + itemsPerScreen, direction: 1 };
         });
     }
+
+    const goBack = useCallback(() => {
+        setBuffer((prev) => {
+            if (prev.cursor === 0) return prev;
+            return { ...prev, cursor: Math.max(0, prev.cursor - itemsPerScreen), direction: -1 };
+        });
+    }, [itemsPerScreen]);
 
     return {
         profiles,
         cursor: buffer.cursor,
+        direction: buffer.direction,
         advance,
+        goBack,
         hasMore,
         isLoading,
         error,

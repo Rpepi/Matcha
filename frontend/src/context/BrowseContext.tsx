@@ -13,7 +13,9 @@ interface BrowseContextValue {
     itemsPerScreen: 1 | 3 | 4 | 5;
     profiles: BrowseProfile[];
     cursor: number;
+    direction: 1 | -1;
     advance: () => void;
+    goBack: () => void;
     isLoading: boolean;
     error: string | null;
     atEnd: boolean;
@@ -29,7 +31,7 @@ const BrowseContext = createContext<BrowseContextValue | undefined>(undefined);
 
 export function BrowseProvider({ children }: { children: ReactNode }) {
     const itemsPerScreen = useItemsPerScreen();
-    const { profiles, cursor, advance, isLoading, error, atEnd, filters, applyFilters, removeProfile } = useBrowseProfiles(itemsPerScreen);
+    const { profiles, cursor, direction, advance, goBack, isLoading, error, atEnd, filters, applyFilters, removeProfile } = useBrowseProfiles(itemsPerScreen);
 
     // A card unmounts as soon as it scrolls out, and the user page is another
     // route: the like state lives here so both always agree.
@@ -40,7 +42,7 @@ export function BrowseProvider({ children }: { children: ReactNode }) {
 
     return (
         <BrowseContext.Provider
-            value={{ itemsPerScreen, profiles, cursor, advance, isLoading, error, atEnd, filters, applyFilters, removeProfile, likes, setLike }}
+            value={{ itemsPerScreen, profiles, cursor, direction, advance, goBack, isLoading, error, atEnd, filters, applyFilters, removeProfile, likes, setLike }}
         >
             {children}
         </BrowseContext.Provider>

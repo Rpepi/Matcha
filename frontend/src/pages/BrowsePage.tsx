@@ -11,12 +11,12 @@ import { ROW_MAX_WIDTH, MIN_GAP, CARD_WIDTH } from "@/lib/browseLayout";
 import { cardVariants } from "@/lib/browseAnimation";
 
 export default function BrowsePage() {
-    const { itemsPerScreen, profiles, cursor, advance, isLoading, error, atEnd } = useBrowseContext();
+    const { itemsPerScreen, profiles, cursor, direction, advance, goBack, isLoading, error, atEnd } = useBrowseContext();
     const batch = profiles.slice(cursor, cursor + itemsPerScreen);
     const { showNotice } = useToast();
 
     useLockBodyScroll();
-    useWheelAdvance({ batchSize: batch.length, advance });
+    useWheelAdvance({ batchSize: batch.length, advance, goBack });
 
     useEffect(() => {
         if (atEnd) showNotice("That's everyone for now — check back later.");
@@ -36,11 +36,11 @@ export default function BrowsePage() {
                 className={`flex w-full ${batch.length > 1 ? "justify-between" : "justify-center"}`}
                 style={{ maxWidth: ROW_MAX_WIDTH, gap: MIN_GAP }}
             >
-                <AnimatePresence mode="popLayout" initial={false} key={itemsPerScreen}>
+                <AnimatePresence mode="popLayout" initial={false} key={itemsPerScreen} custom={{ direction }}>
                     {batch.map((profile, i) => (
                         <motion.div
                             key={profile.id}
-                            custom={i}
+                            custom={{ index: i, direction }}
                             variants={cardVariants}
                             initial="hidden"
                             animate="visible"
