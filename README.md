@@ -83,7 +83,8 @@ docker compose exec backend python -m app.seed
 | The app | <http://localhost:5173> |
 | The API (interactive docs at `/docs`) | <http://localhost:5000> |
 | Emails sent by the app (verification, password reset) | <http://localhost:8025> (Mailpit) |
-| PostgreSQL / Redis | `localhost:5432` / `localhost:6379` |
+| PostgreSQL | `localhost:5432` |
+| Redis (not published on the host) | `docker compose exec cache sh -c 'redis-cli -a "$REDIS_PASSWORD"'` |
 
 ### Try it in 2 minutes
 
@@ -144,7 +145,6 @@ flowchart TB
         p1[":5173"]
         p2[":5000"]
         p3[":5432"]
-        p4[":6379"]
         p5[":8025 / :1025"]
     end
 
@@ -163,12 +163,11 @@ flowchart TB
     p1 --- frontend
     p2 --- backend
     p3 --- db
-    p4 --- cache
     p5 --- mailpit
 
     frontend -->|"http://backend:5000"| backend
     backend -->|"depends_on: healthy"| db
-    backend --> cache
+    backend -->|"depends_on: healthy"| cache
     backend --> mailpit
     db --- v1
     cache --- v2
@@ -690,7 +689,7 @@ Where each point of the 42 evaluation grid lives, for a quick defence.
 | Symptom | Fix |
 |---|---|
 | The backend exits at start with `RuntimeError … not set` | A variable of `.env` is missing: compare it with `.env.example`. |
-| A port is already in use (5000, 5173, 5432, 6379, 8025) | Stop the other program, or change the mapping in `docker-compose.yml`. |
+| A port is already in use (5000, 5173, 5432, 8025, 1025) | Stop the other program, or change the mapping in `docker-compose.yml`. |
 | "Sign in with Google" fails | It needs real Google credentials in `.env`. Username / email login works without them. |
 | The verification email never arrives | Open Mailpit at <http://localhost:8025>: all mail goes there, none leaves the machine. |
 | `429 Too many requests` while testing | The rate limits are real. Wait a minute, or run `docker compose restart cache` to clear them. |
