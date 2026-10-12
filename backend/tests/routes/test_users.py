@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from datetime import date
 from fastapi.responses import Response
-from app.routes.users import _build_orientation_filter, _recalculate_fame
+from app.routes.users import _build_orientation_filter, _recalculate_fame, is_interested
 
 ME_ROW = {
     "gender": "male", "orientation": "hetero",
@@ -69,33 +69,76 @@ class TestRecalculateFame:
         assert "l2.liker_id = l1.liked_id AND l2.liked_id = l1.liker_id" in query
 
 
+class TestIsInterested:
+    @pytest.mark.parametrize("orientation, gender, other, expected", [
+        ("hetero", "male", "female", True),
+        ("hetero", "male", "male", False),
+        ("hetero", "male", "other", False),
+        ("hetero", "female", "male", True),
+        ("hetero", "female", "female", False),
+        ("hetero", "other", "male", True),
+        ("hetero", "other", "female", True),
+        ("hetero", "other", "other", False),
+        ("homo", "male", "male", True),
+        ("homo", "male", "female", False),
+        ("homo", "other", "other", True),
+        ("bi", "male", "other", True),
+        ("bi", "female", "female", True),
+        (None, "male", "male", True),  # no orientation given: bisexual
+    ])
+    def test_truth_table(self, orientation, gender, other, expected):
+        assert is_interested(orientation, gender, other) is expected
+
+
+def filter_keeps(me_gender, me_orientation, them_gender, them_orientation) -> bool:
+    """Evaluate the conditions of _build_orientation_filter on one candidate, in Python."""
+    conds, params = _build_orientation_filter(me_gender, me_orientation)
+    values = iter(params)
+    for cond in conds:
+        allowed = next(values)
+        if cond == "u.gender = ANY(%s)":
+            if them_gender not in allowed:
+                return False
+        elif cond.startswith("COALESCE(u.orientation, 'bi')"):
+            if f"{them_orientation or 'bi'}:{them_gender}" not in allowed:
+                return False
+        else:
+            raise AssertionError(f"unexpected condition {cond}")
+    return True
+
+
 class TestOrientationFilter:
-    def test_hetero_male_sees_female(self):
-        conds, params = _build_orientation_filter("male", "hetero")
-        assert "u.gender = %s" in conds
-        assert params[0] == "female"
-        assert "hetero" in params[1]
-        assert "bi" in params[1]
+    def test_hetero_male_sees_hetero_and_bi_women(self):
+        assert filter_keeps("male", "hetero", "female", "hetero")
+        assert filter_keeps("male", "hetero", "female", "bi")
 
-    def test_hetero_female_sees_male(self):
-        conds, params = _build_orientation_filter("female", "hetero")
-        assert params[0] == "male"
+    def test_hetero_male_does_not_see_lesbians(self):
+        assert not filter_keeps("male", "hetero", "female", "homo")
 
-    def test_homo_male_sees_male(self):
-        conds, params = _build_orientation_filter("male", "homo")
-        assert "u.gender = %s" in conds
-        assert params[0] == "male"
-        assert "homo" in params[1]
-        assert "bi" in params[1]
+    def test_hetero_male_does_not_see_men(self):
+        assert not filter_keeps("male", "hetero", "male", "bi")
 
-    def test_bi_has_no_gender_constraint(self):
-        conds, params = _build_orientation_filter("male", "bi")
-        assert conds == []
-        assert params == []
+    def test_homo_male_sees_gay_and_bi_men_only(self):
+        assert filter_keeps("male", "homo", "male", "homo")
+        assert filter_keeps("male", "homo", "male", "bi")
+        assert not filter_keeps("male", "homo", "male", "hetero")
+        assert not filter_keeps("male", "homo", "female", "bi")
 
-    def test_hetero_other_gender_skips_gender_filter(self):
-        conds, params = _build_orientation_filter("other", "hetero")
-        assert not any("u.gender" in c for c in conds)
+    def test_bi_male_is_not_shown_people_who_would_not_be_interested(self):
+        """Interest must go both ways: a hetero man or a lesbian never wants a man."""
+        assert not filter_keeps("male", "bi", "male", "hetero")
+        assert not filter_keeps("male", "bi", "female", "homo")
+        assert filter_keeps("male", "bi", "male", "homo")
+        assert filter_keeps("male", "bi", "female", "hetero")
+        assert filter_keeps("male", "bi", "other", "bi")
+
+    def test_no_orientation_counts_as_bi(self):
+        assert filter_keeps("female", None, "male", None)
+        assert filter_keeps("female", None, "female", "bi")
+
+    def test_bi_adds_no_gender_condition(self):
+        conds, _ = _build_orientation_filter("male", "bi")
+        assert "u.gender = ANY(%s)" not in conds
 
 
 class TestBrowseUsers:
@@ -263,7 +306,8 @@ class TestBrowseUsers:
         # conditions are written, then the page offset (page 2 -> 40).
         assert params[7:] == [
             1, 1, 1,                      # user, blocks (x2)
-            "female", ["hetero", "bi"],   # orientation of the viewer (male, hetero)
+            ["female"],                   # genders the viewer (male, hetero) is into
+            ["homo:male", "hetero:female", "hetero:other", "bi:male", "bi:female", "bi:other"],  # who is into him
             20, 40,                       # min_age, max_age
             48.85, 2.35, 50,              # max_distance
             1, 90,                        # min_fame, max_fame
@@ -272,6 +316,32 @@ class TestBrowseUsers:
             40,
         ]
         assert "ORDER BY common_tags ASC, u.id" in query
+
+    async def test_searched_place_moves_the_center_of_max_distance(self, auth_client, mock_db, mock_redis):
+        query, params = await self.browse(
+            auth_client, mock_db, mock_redis, "/users?max_distance=30&lat=18.7883&lon=98.9853"
+        )
+        assert query.count("%s") == len(params)
+        # Distance shown and sorted on stays from the viewer; the radius is around the place.
+        assert params[:2] == [48.85, 2.35]
+        assert params[-4:] == [18.7883, 98.9853, 30, 0]
+
+    async def test_without_a_place_the_radius_is_around_the_viewer(self, auth_client, mock_db, mock_redis):
+        _, params = await self.browse(auth_client, mock_db, mock_redis, "/users?max_distance=30")
+        assert params[-4:] == [48.85, 2.35, 30, 0]
+
+    @pytest.mark.parametrize("query_string", [
+        "lat=10", "lon=10", "lat=91&lon=0", "lat=0&lon=181", "lat=nan&lon=0",
+        "lat=1e3&lon=0", "lat=abc&lon=0", "lat=&lon=0",
+    ])
+    async def test_bad_place_is_400_before_the_database(self, auth_client, mock_db, mock_redis, query_string):
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock()
+
+        res = await auth_client.get(f"/users?{query_string}")
+
+        assert res.status_code == 400
+        mock_db.execute.assert_not_called()
 
     async def test_no_location_returns_400(self, auth_client, mock_db, mock_redis):
         mock_redis.get = AsyncMock(return_value="1")
@@ -453,17 +523,17 @@ class TestGetUserProfile:
         assert res.status_code == 404
 
     async def test_first_visit_upserts_and_notifies(self, auth_client, mock_db, mock_redis):
-        """No prior visit (or one older than 15 days): the upsert returns a
-        row, so a "visit" notification is inserted and published."""
+        """No recent visit from this user: the visit is recorded and a "visit"
+        notification is inserted and published."""
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=None),
             make_cursor(fetchone=USER_ROW),
             make_cursor(fetchall=[]),
             make_cursor(fetchall=[]),
-            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
-            make_cursor(fetchone={"id": 42}),  # visits upsert: fresh row -> notify
-            make_cursor(),                     # INSERT notification
+            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False, "distance_km": 12}),
+            make_cursor(fetchone={"notify": True}),  # visits upsert: no recent visit -> notify
+            make_cursor(),                           # INSERT notification
         ])
 
         res = await auth_client.get("/users/2")
@@ -473,11 +543,10 @@ class TestGetUserProfile:
         assert any("INSERT INTO visits" in q for q in calls)
         assert any("INSERT INTO notifications" in q for q in calls)
         mock_redis.publish.assert_called_once()
+        assert res.json()["distance_km"] == 12
 
-    async def test_repeat_visit_within_15_days_skips_notification(self, auth_client, mock_db, mock_redis):
-        """A visit less than 15 days old already exists: ON CONFLICT ... WHERE
-        is false, the upsert touches nothing and returns no row, so no
-        notification is inserted or published."""
+    async def test_every_visit_moves_the_date_to_now(self, auth_client, mock_db, mock_redis):
+        """The history shows the latest visit: a repeat visit always updates the date."""
         mock_redis.get = AsyncMock(return_value="1")
         mock_db.execute = AsyncMock(side_effect=[
             make_cursor(fetchone=None),
@@ -485,7 +554,25 @@ class TestGetUserProfile:
             make_cursor(fetchall=[]),
             make_cursor(fetchall=[]),
             make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
-            make_cursor(fetchone=None),  # visits upsert: WHERE false -> no row
+            make_cursor(fetchone={"notify": False}),
+        ])
+
+        await auth_client.get("/users/2")
+
+        upsert = next(str(c.args[0]) for c in mock_db.execute.call_args_list if "INSERT INTO visits" in str(c.args[0]))
+        assert "DO UPDATE SET created_at = NOW()" in upsert
+        assert "WHERE visits.created_at" not in upsert  # no condition: the date always moves
+
+    async def test_repeat_visit_within_the_cooldown_skips_notification(self, auth_client, mock_db, mock_redis):
+        """The same visitor came seconds ago (a reload): recorded, not notified again."""
+        mock_redis.get = AsyncMock(return_value="1")
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone=None),
+            make_cursor(fetchone=USER_ROW),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchall=[]),
+            make_cursor(fetchone={"liked_by_me": False, "liked_by_them": False}),
+            make_cursor(fetchone={"notify": False}),  # visits upsert: visited seconds ago
         ])
 
         res = await auth_client.get("/users/2")
@@ -495,6 +582,7 @@ class TestGetUserProfile:
         assert any("INSERT INTO visits" in q for q in calls)
         assert not any("INSERT INTO notifications" in q for q in calls)
         mock_redis.publish.assert_not_called()
+        assert res.json()["distance_km"] is None
 
     async def test_no_cookie_returns_401(self, client):
         res = await client.get("/users/2")

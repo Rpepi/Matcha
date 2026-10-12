@@ -12,7 +12,8 @@ MAIL_PORT = os.getenv("MAIL_PORT")
 
 if not MAIL_SECRET or not MAIL_HOST or not MAIL_PORT:
     raise RuntimeError("env variable MAIL_SECRET not set")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# Links are built as FRONTEND_URL + "/path": a trailing slash in .env would give "//path".
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 serializer = URLSafeTimedSerializer(MAIL_SECRET)
 

@@ -3,11 +3,9 @@ import { Link, NavLink } from "react-router-dom";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Search, Send, UserRound, LogOut, Bell, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.png";
-import { logout } from "../api/auth";
-import { useProfileContext } from "../context/ProfileContext";
 import { useChatContext } from "../context/ChatContext";
 import { useNotificationContext } from "@/context/NotificationContext";
-import { useToast } from "../context/ToastContext";
+import { useLogout } from "@/hooks/useLogout";
 
 const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/browse", icon: Search, label: "Browse" },
@@ -34,23 +32,9 @@ function IconTooltip({ label, children }: { label: string; children: ReactElemen
 
 
 export default function Sidebar() {
-    const { refetch } = useProfileContext();
     const { unreadTotal } = useChatContext();
     const {unreadCount} = useNotificationContext();
-    const { showError } = useToast();
-
-    async function handleLogout() {
-        try {
-            const response = await logout();
-            if (!response.ok) {
-                showError("Could not log out. Please try again.");
-                return;
-            }
-            await refetch();
-        } catch {
-            showError("Could not log out. Please check your connection and try again.");
-        }
-    }
+    const handleLogout = useLogout();
 
     return (
         <aside className="fixed left-0 right-0 bottom-0 z-30 flex items-center justify-around border-t-3 border-grey/15 bg-paper py-3 md:top-0 md:bottom-0 md:left-0 md:right-auto md:grid md:w-18 md:grid-rows-[auto_1fr_auto] md:items-center md:justify-items-center md:border-t-0 md:border-3 md:py-6">
@@ -58,7 +42,8 @@ export default function Sidebar() {
                 <img src={logo} alt="" className="h-9 w-9" />
             </Link>
 
-            <nav className="flex items-center gap-6 md:flex-col md:gap-1">
+            {/* Tighter on phones: the four links and the log out button share the bottom bar down to 320px. */}
+            <nav className="flex items-center gap-1 min-[400px]:gap-4 sm:gap-6 md:flex-col md:gap-1">
                 {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
                     let badge = to === "/chat"  ? unreadTotal : 0;
                     badge = to ==="/notification" ? unreadCount : badge
@@ -92,7 +77,8 @@ export default function Sidebar() {
                 })}
             </nav>
 
-            <div className="hidden md:block">
+            {/* Visible at every width: logging out must be one click away on every page, phones included. */}
+            <div>
                 <IconTooltip label="Log out">
                     <button
                         type="button"

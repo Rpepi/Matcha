@@ -3,7 +3,9 @@ from datetime import date
 from unittest.mock import MagicMock, patch, call
 from psycopg import errors as psycopg_errors
 from datetime import datetime, timedelta, timezone
-from app.seed import fake, generate_user, make_username, TAGS, CITIES, CITY_SPREAD_DEGREES, LAST_SEEN_WITHIN_DAYS
+import random
+from app.matching import is_interested
+from app.seed import fake, generate_user, make_username, plan_likes, seed_interactions, TAGS, CITIES, CITY_SPREAD_DEGREES, LAST_SEEN_WITHIN_DAYS, LIKES_PER_USER
 from app.validation import clean_username
 
 
@@ -211,10 +213,13 @@ class TestSeed:
 
         with patch("psycopg.connect", return_value=conn), \
              patch("app.seed.generate_user", side_effect=fake_users), \
+             patch("app.seed.seed_interactions") as interactions, \
              patch.dict("os.environ", {"DATABASE_URL": "postgresql://test"}):
             seed()
 
         assert conn.commit.call_count == 500
+        interactions.assert_called_once()
+        assert len(interactions.call_args.args[1]) == 500  # every user created takes part
 
     def test_seed_rolls_back_and_continues_on_unique_violation(self):
         from app.seed import seed
@@ -248,3 +253,72 @@ class TestSeed:
         assert "travel" in TAGS
         assert "coffee" in TAGS
         assert len(TAGS) >= 10
+
+
+def _profiles(n=120):
+    rng = random.Random(7)
+    return [
+        {"id": i, "gender": rng.choice(["male", "female", "other"]),
+         "orientation": rng.choice(["hetero", "homo", "bi"]), "city": rng.choice(["Bangkok", "Phuket"])}
+        for i in range(1, n + 1)
+    ]
+
+
+class TestPlanLikes:
+    def test_likes_only_go_to_people_the_liker_is_interested_in(self):
+        profiles = _profiles()
+        by_id = {p["id"]: p for p in profiles}
+        for liker, liked in plan_likes(profiles, random.Random(1)):
+            assert is_interested(by_id[liker]["orientation"], by_id[liker]["gender"], by_id[liked]["gender"])
+
+    def test_no_self_like_and_no_duplicate(self):
+        likes = plan_likes(_profiles(), random.Random(2))
+        assert all(liker != liked for liker, liked in likes)
+        assert len(likes) == len(set(likes))
+
+    def test_nobody_likes_more_than_the_maximum(self):
+        likes = plan_likes(_profiles(), random.Random(3))
+        given = {}
+        for liker, _ in likes:
+            given[liker] = given.get(liker, 0) + 1
+        assert max(given.values()) <= LIKES_PER_USER[1]
+
+    def test_fame_comes_out_spread_and_some_likes_are_mutual(self):
+        """The point of seeding likes: fame must not be 0 for everyone, and matches exist."""
+        likes = plan_likes(_profiles(300), random.Random(4))
+        received = {}
+        for _, liked in likes:
+            received[liked] = received.get(liked, 0) + 1
+        assert max(received.values()) >= 3 * (sum(received.values()) / len(received))
+        assert any((liked, liker) in set(likes) for liker, liked in likes)
+
+
+class TestSeedInteractions:
+    def test_inserts_visits_and_likes_then_computes_fame_and_commits(self):
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [
+            (1, "male", "bi", "Bangkok"), (2, "female", "bi", "Bangkok"), (3, "male", "bi", "Bangkok"),
+        ]
+        cur = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cur
+
+        seed_interactions(conn, [1, 2, 3], random.Random(5))
+
+        sqls = [c.args[0] for c in cur.executemany.call_args_list]
+        assert any("INSERT INTO visits" in q for q in sqls)
+        assert any("INSERT INTO likes" in q for q in sqls)
+        assert "fame_rating" in conn.execute.call_args_list[-1].args[0]
+        conn.commit.assert_called_once()
+
+    def test_every_like_has_a_visit_before_it(self):
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [(i, "male", "bi", "Bangkok") for i in range(1, 30)]
+        cur = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cur
+
+        seed_interactions(conn, list(range(1, 30)), random.Random(6))
+
+        rows = {c.args[0].split()[2]: c.args[1] for c in cur.executemany.call_args_list}
+        visits = {(v, d): at for v, d, at in rows["visits"]}
+        for liker, liked, liked_at in rows["likes"]:
+            assert visits[(liker, liked)] < liked_at

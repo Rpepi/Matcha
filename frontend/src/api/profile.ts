@@ -28,6 +28,33 @@ export async function updateLocation(latitude: number, longitude: number): Promi
     return response
 }
 
+export type ApproximateLocation =
+    | { located: false }
+    | { located: true; latitude: number; longitude: number; city: string | null; saved: boolean };
+
+/**
+ * Locates the user from their IP address, without asking them: the fallback for
+ * people who do not share their GPS position. The server stores it only if the
+ * user has no position yet.
+ */
+export async function approximateLocation(): Promise<Response> {
+    const response = await fetch('/api/profile/location/approximate', {
+        method: 'POST',
+        credentials: 'include',
+    })
+    return response
+}
+
+export async function changePassword(current_password: string, new_password: string): Promise<Response> {
+    const response = await fetch('/api/profile/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ current_password, new_password }),
+    })
+    return response
+}
+
 export interface Visit {
     id: number;
     visitor_id: number;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Flame } from "lucide-react";
 import type { BrowseProfile } from "../api/browse";
 import { CARD_ASPECT_RATIO } from "../lib/browseLayout";
 import { useLike } from "../hooks/useLike";
@@ -52,8 +53,19 @@ export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
                                 {profile.age}
                             </p>
                         </div>
-                        <p className="text-sm text-paper/80">
-                            {profile.distance_km}km
+                        {/* Everything the list can be sorted and filtered on, so the order can be checked at a glance. */}
+                        <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-paper/80">
+                            <span>{profile.distance_km} km</span>
+                            <span className="flex items-center gap-1" title="Fame rating">
+                                <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+                                {profile.fame_rating}
+                                <span className="sr-only"> fame</span>
+                            </span>
+                            {profile.common_tags > 0 && (
+                                <span title="Interests in common with you">
+                                    {profile.common_tags} in common
+                                </span>
+                            )}
                         </p>
                     </div>
                 </div>

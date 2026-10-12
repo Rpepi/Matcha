@@ -10,8 +10,12 @@ from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.rate_limiter.rate_limit import rate_limit
 from app.utils import require_json
-from app.validation import clean_str, parse_int_param, parse_choice_param, parse_tags_param, valid_target_id, MAX_REASON
+from app.validation import (
+    clean_str, parse_int_param, parse_float_param, parse_choice_param, parse_tags_param, valid_target_id,
+    MAX_REASON, GENDERS, ORIENTATIONS,
+)
 from app.log import get_logger
+from app.matching import is_interested
 from app.routes.notifications import insert_notification, publish_notification
 from app.routes.chat import publish_unmatch
 
@@ -30,6 +34,10 @@ BROWSE_SORTS = {
     "fame": ("u.fame_rating", "desc"),
     "tags": ("common_tags", "desc"),
 }
+
+# A visit from someone who already came less than this long ago is recorded
+# (its date moves to now) but not notified again.
+VISIT_NOTIFY_COOLDOWN_SECONDS = 10
 
 
 async def _get_user_or_404(conn: AsyncConnection, user_id: int) -> dict:
@@ -103,13 +111,12 @@ async def _recalculate_fame(conn: AsyncConnection, user_id: int):
 
 
 def _build_orientation_filter(gender: str | None, orientation: str | None) -> tuple[list[str], list]:
-    """Build the SQL conditions restricting candidates by gender/orientation.
+    """Build the SQL conditions keeping only candidates compatible both ways.
 
-    A "homo" user only sees users of the same gender who are "homo" or
-    "bi". A "hetero" user only sees users of the opposite gender (male or
-    female) who are "hetero" or "bi"; with any other gender only the
-    orientation is constrained. "bi" or unknown orientations add no
-    condition.
+    A candidate is kept when the current user is interested in their gender
+    **and** they are interested in the current user's gender (see
+    ``is_interested``): a bi man is not shown a heterosexual man, who would
+    never be interested in him. A candidate with no orientation counts as bi.
 
     Args:
         gender: Gender of the current user.
@@ -118,24 +125,23 @@ def _build_orientation_filter(gender: str | None, orientation: str | None) -> tu
     Returns:
         A tuple ``(sql_conditions, params)``: SQL fragments using the ``u``
         alias of the ``users`` table with ``%s`` placeholders, and the
-        matching parameter values. Both lists are empty when nothing is
-        restricted.
+        matching parameter values.
     """
-    if orientation == "homo":
-        return (
-            ["u.gender = %s", "u.orientation = ANY(%s)"],
-            [gender, ["homo", "bi"]],
-        )
-    if orientation == "hetero":
-        opposite = {"male": "female", "female": "male"}.get(gender or "")
-        if opposite:
-            return (
-                ["u.gender = %s", "u.orientation = ANY(%s)"],
-                [opposite, ["hetero", "bi"]],
-            )
-        return ["u.orientation = ANY(%s)"], [["hetero", "bi"]]
-    # bi or unknown — no gender constraint, but target must be potentially interested
-    return [], []
+    conditions, params = [], []
+
+    wanted_genders = [g for g in GENDERS if is_interested(orientation, gender, g)]
+    if len(wanted_genders) < len(GENDERS):
+        conditions.append("u.gender = ANY(%s)")
+        params.append(wanted_genders)
+
+    # Every (orientation, gender) pair interested in the current user, as "orientation:gender".
+    interested_in_me = [
+        f"{o}:{g}" for o in ORIENTATIONS for g in GENDERS if is_interested(o, g, gender)
+    ]
+    conditions.append("COALESCE(u.orientation, 'bi') || ':' || u.gender = ANY(%s)")
+    params.append(interested_in_me)
+
+    return conditions, params
 
 
 @router.get("/users", dependencies=[Depends(rate_limit("browse", limit=30, seconds=60, burst=10, by="account"))])
@@ -144,7 +150,8 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
 
     Candidates are verified users with a complete profile and a location,
     excluding the user themself, blocked users (both directions) and users
-    not compatible with the orientation rules. They are ranked by a score
+    not compatible both ways with the orientation rules (see
+    ``_build_orientation_filter``). They are ranked by a score
     combining shared tags (x20), fame (x0.5), age closeness and distance
     (x0.1 per km), best first unless ``sort`` says otherwise, 20 per page.
     The current user must have set their location.
@@ -159,7 +166,10 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
             default), ``age``, ``distance``, ``fame`` or ``tags`` (tags in
             common), and ``order`` is ``asc`` or ``desc`` (each sort has its
             own default: youngest first, closest first, highest fame first,
-            most tags in common first). Ties are broken by id.
+            most tags in common first). Ties are broken by id. ``lat`` and
+            ``lon`` (together) move the center of ``max_distance`` to a
+            searched place; ``distance_km`` and the distance sort stay
+            measured from the user.
         redis: Redis client (injected dependency).
         conn: Database connection (injected dependency).
 
@@ -174,10 +184,10 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         HTTPException: 400 if a query parameter is not an integer or is out
             of range (``page`` 0-10000, ``min_age``/``max_age`` 16-120,
             ``max_distance`` 0-40000, ``min_fame``/``max_fame`` 0-1000000,
-            ``min_tags`` 0-5), ``sort`` or ``order`` is not one of the
-            values above, ``tags`` holds an invalid or more than 5 names, or
-            the user's location is not set; 401 if the session is missing or
-            invalid.
+            ``min_tags`` 0-5, ``lat`` -90-90, ``lon`` -180-180, or only one of
+            them), ``sort`` or ``order`` is not one of the values above,
+            ``tags`` holds an invalid or more than 5 names, or the user's
+            location is not set; 401 if the session is missing or invalid.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
@@ -192,6 +202,10 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
     tag_names   = parse_tags_param(qp.get("tags"))
     sort        = parse_choice_param(qp.get("sort"), "sort", tuple(BROWSE_SORTS)) or "score"
     order       = parse_choice_param(qp.get("order"), "order", ("asc", "desc"))
+    center_lat  = parse_float_param(qp.get("lat"), "lat", -90, 90)
+    center_lon  = parse_float_param(qp.get("lon"), "lon", -180, 180)
+    if (center_lat is None) != (center_lon is None):
+        raise HTTPException(status_code=400, detail="'lat' and 'lon' go together")
 
     cursor = await conn.execute(
         "SELECT gender, orientation, latitude, longitude, birth_date FROM users WHERE id = %s",
@@ -230,10 +244,14 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         conditions.append("DATE_PART('year', AGE(u.birth_date)) <= %s")
         where_params.append(max_age)
     if max_dist is not None:
+        # Around the searched place when there is one, around the user otherwise.
         conditions.append(
             "earth_distance(ll_to_earth(u.latitude, u.longitude), ll_to_earth(%s, %s)) / 1000 <= %s"
         )
-        where_params.extend([my_lat, my_lon, max_dist])
+        if center_lat is not None:
+            where_params.extend([center_lat, center_lon, max_dist])
+        else:
+            where_params.extend([my_lat, my_lon, max_dist])
     if min_fame is not None:
         conditions.append("u.fame_rating >= %s")
         where_params.append(min_fame)
@@ -314,13 +332,13 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     """Return another user's profile and record the visit.
 
     Side effect: upserts a row in ``visits`` keyed on ``(visitor_id,
-    visited_id)`` (see the ``UNIQUE`` constraint in migration 006) and
-    sends a "visit" notification to the viewed user — but only when that
-    upsert actually changes the row, i.e. on the first visit ever, or the
-    first one after the previous visit is more than 15 days old. Repeat
-    views inside that window are silently skipped: no new row, no
-    notification. If the upsert fails, the error is logged and rolled
-    back, and the profile is still returned.
+    visited_id)`` (see the ``UNIQUE`` constraint in migration 006), dated
+    now, so the visits history always shows the latest visit, and sends a
+    "visit" notification to the viewed user, unless the same visitor already
+    came less than ``VISIT_NOTIFY_COOLDOWN_SECONDS`` ago (a reload, or the
+    double render of React's development mode, is one visit, not two). If
+    the upsert fails, the error is logged and rolled back, and the profile
+    is still returned.
 
     Args:
         target_id: Id of the user to view.
@@ -331,8 +349,9 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     Returns:
         The public fields of the user (see ``_get_user_or_404``) plus
         ``photos``, ``tags``, ``is_liked_by_me``, ``likes_me`` (the user
-        likes the current user, whether or not it is returned) and
-        ``is_match`` (both like each other).
+        likes the current user, whether or not it is returned),
+        ``is_match`` (both like each other) and ``distance_km`` from the
+        current user (None if either has no position).
 
     Raises:
         HTTPException: 400 if ``target_id`` is the current user; 401 if not
@@ -365,29 +384,44 @@ async def get_user_profile(target_id: int, request: Request, redis: Redis = Depe
     cursor = await conn.execute("""
         SELECT
             EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = %s) AS liked_by_me,
-            EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = %s) AS liked_by_them
-    """, (user_id, target_id, target_id, user_id))
+            EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = %s) AS liked_by_them,
+            (SELECT ROUND(earth_distance(
+                        ll_to_earth(me.latitude, me.longitude), ll_to_earth(them.latitude, them.longitude)
+                    ) / 1000)::int
+             FROM users me, users them WHERE me.id = %s AND them.id = %s) AS distance_km
+    """, (user_id, target_id, target_id, user_id, user_id, target_id))
     like_status = await cursor.fetchone()
     profile["is_liked_by_me"] = like_status["liked_by_me"]
     profile["likes_me"] = like_status["liked_by_them"]
     profile["is_match"] = like_status["liked_by_me"] and like_status["liked_by_them"]
+    # None when either of the two has no position.
+    profile["distance_km"] = like_status.get("distance_km")
 
     try:
+        # `previous` reads the table as it was before this statement, so it still
+        # holds the date of the last visit while `upsert` replaces it with now.
         cursor = await conn.execute("""
-            INSERT INTO visits (visitor_id, visited_id, created_at)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (visitor_id, visited_id)
-            DO UPDATE SET created_at = NOW()
-            WHERE visits.created_at < NOW() - INTERVAL '15 days'
-            RETURNING id
+            WITH previous AS (
+                SELECT created_at FROM visits WHERE visitor_id = %s AND visited_id = %s
+            ), upsert AS (
+                INSERT INTO visits (visitor_id, visited_id, created_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (visitor_id, visited_id) DO UPDATE SET created_at = NOW()
+                RETURNING id
+            )
+            SELECT NOT EXISTS (
+                SELECT 1 FROM previous WHERE created_at > NOW() - make_interval(secs => %s)
+            ) AS notify
+            FROM upsert
         """,
-            (user_id, target_id)
+            (user_id, target_id, user_id, target_id, VISIT_NOTIFY_COOLDOWN_SECONDS)
         )
         row = await cursor.fetchone()
-        if row:
+        notify = bool(row and row["notify"])
+        if notify:
             await insert_notification(conn, target_id, user_id, "visit")
         await conn.commit()
-        if row:
+        if notify:
             await publish_notification(target_id, user_id, "visit", redis)
     except Exception:
         logger.exception("Failed to record visit from user %s to %s", user_id, target_id)

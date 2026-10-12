@@ -3,10 +3,11 @@ import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
 import { updateProfile, updateLocation } from "@/api/profile";
 import { reverseGeocode } from "@/lib/nominatim";
+import { locateByIp } from "@/lib/locateByIp";
 
 export function useProfileCity(city: string | null) {
     const { refetch } = useProfileContext();
-    const { showError } = useToast();
+    const { showError, showNotice } = useToast();
     const [isEditing, setIsEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [pendingCity, setPendingCity] = useState(city ?? "");
@@ -50,7 +51,17 @@ export function useProfileCity(city: string | null) {
                     if (cityName) setPendingCity(cityName);
                     resolve(cityName);
                 },
-                (geoError) => {
+                async (geoError) => {
+                    // Not sharing the GPS position is fine: the connection still tells roughly where they are.
+                    const place = await locateByIp();
+                    if (place) {
+                        setLatitude(place.latitude);
+                        setLongitude(place.longitude);
+                        if (place.city) setPendingCity(place.city);
+                        showNotice(`Placed near ${place.city ?? "your current area"} from your connection. Save to keep it, or search for a place.`);
+                        resolve(place.city);
+                        return;
+                    }
                     switch (geoError.code) {
                         case 1:
                             showError("Access to this location has been denied. Please allow it in your browser settings.");
@@ -69,7 +80,7 @@ export function useProfileCity(city: string | null) {
                 { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false },
             );
         });
-    }, [showError]);
+    }, [showError, showNotice]);
 
     const canSave = latitude !== "" && longitude !== "";
 

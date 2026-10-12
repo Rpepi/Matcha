@@ -12,10 +12,13 @@ interface ProfileDetailLayoutProps {
         id: number;
         username: string;
         first_name: string;
+        last_name: string;
         birth_date: string | null;
         fame_rating: number;
         gender: string | null;
+        orientation: string | null;
         city: string | null;
+        distance_km?: number | null;
         bio: string | null;
         tags: string[];
         is_online: boolean;

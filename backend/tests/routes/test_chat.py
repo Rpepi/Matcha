@@ -702,3 +702,27 @@ class TestMarkSeen:
         res = await client.post("/chat/2/seen")
         assert res.status_code == 401
         mock_db.execute.assert_not_called()
+
+
+class TestChatUnmatch:
+    def test_unmatch_is_told_to_the_client_before_the_socket_closes(self, chat_app, mock_redis):
+        """The client learns the match is over from the socket itself, so it never
+        has to probe the API (which would answer with a 403) to find out."""
+        from starlette.websockets import WebSocketDisconnect
+
+        async def _events():
+            yield {"type": "subscribe", "data": 1}
+            yield {"type": "message", "data": json.dumps({"type": "unmatch"})}
+
+        pubsub = make_pubsub()
+        pubsub.listen = MagicMock(side_effect=_events)
+        mock_redis.pubsub = MagicMock(return_value=pubsub)
+        mock_pool, _ = make_pool_mock()
+
+        with patch("app.routes.chat.get_current_user_id", new=AsyncMock(return_value=1)), \
+             patch("app.db.pool.pool", mock_pool):
+            with TestClient(chat_app) as tc:
+                with tc.websocket_connect("/chat/2", headers=WS_HEADERS) as ws:
+                    assert ws.receive_json() == {"type": "unmatch"}
+                    with pytest.raises(WebSocketDisconnect):
+                        ws.receive_json()

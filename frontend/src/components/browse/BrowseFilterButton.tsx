@@ -6,8 +6,9 @@ import { useBrowseContext } from "@/context/BrowseContext";
 import { useProfileContext } from "@/context/ProfileContext";
 import { Button, fieldClasses } from "@/components/FormControls";
 import { getAvailableTags } from "@/api/tags";
+import LocationSearchField from "@/components/LocationSearchField";
 import {
-    AGE_MIN, AGE_MAX, DISTANCE_MAX_KM, FAME_MAX, TAGS_MAX, NAMED_TAGS_MAX, DEFAULT_FILTERS, SORT_OPTIONS,
+    AGE_MIN, AGE_MAX, DISTANCE_MAX_KM, FAME_MAX, TAGS_MAX, NAMED_TAGS_MAX, DEFAULT_FILTERS, SORT_OPTIONS, PLACE_RADIUS_KM,
     type BrowseFilters, type BrowseSort,
 } from "@/lib/browseFilters";
 
@@ -36,6 +37,8 @@ export default function BrowseFilterButton() {
     // The tag vocabulary is loaded the first time the dialog opens, then kept.
     const [availableTags, setAvailableTags] = useState<string[] | null>(null);
     const [tagsFailed, setTagsFailed] = useState(false);
+    // The place field keeps its own text: it starts over on each opening and on Reset.
+    const [placeFieldKey, setPlaceFieldKey] = useState(0);
 
     const tagsMax = Math.min(profile?.tags.length ?? 0, TAGS_MAX);
 
@@ -53,6 +56,7 @@ export default function BrowseFilterButton() {
     function handleOpenChange(next: boolean) {
         if (next) {
             setDraft({ ...filters, minTags: Math.min(filters.minTags, tagsMax) });
+            setPlaceFieldKey((k) => k + 1);
             if (availableTags === null) loadTags();
         }
         setOpen(next);
@@ -64,6 +68,19 @@ export default function BrowseFilterButton() {
             if (prev.tags.length >= NAMED_TAGS_MAX) return prev;
             return { ...prev, tags: [...prev.tags, tag] };
         });
+    }
+
+    function pickPlace(label: string, latitude: number, longitude: number) {
+        // A place with no radius would filter nothing: start from a sensible one.
+        setDraft((prev) => ({
+            ...prev,
+            center: { label, latitude, longitude },
+            maxDistance: prev.maxDistance >= DISTANCE_MAX_KM ? PLACE_RADIUS_KM : prev.maxDistance,
+        }));
+    }
+
+    function clearPlace() {
+        setDraft((prev) => (prev.center ? { ...prev, center: null } : prev));
     }
 
     function changeSort(sort: BrowseSort) {
@@ -103,9 +120,29 @@ export default function BrowseFilterButton() {
                             </Slider.Root>
                         </FilterSection>
 
+                        <FilterSection label="Location" value={draft.center ? "Around a place" : "Around you"}>
+                            <LocationSearchField
+                                key={placeFieldKey}
+                                city={draft.center?.label ?? ""}
+                                label="Search around a city or neighborhood"
+                                actionLabel="Around me"
+                                placeholder="e.g. Chiang Mai"
+                                onUseLocation={async () => {
+                                    clearPlace();
+                                    return "";
+                                }}
+                                onSelectLocation={pickPlace}
+                                onClearLocation={clearPlace}
+                            />
+                        </FilterSection>
+
                         <FilterSection
                             label="Distance"
-                            value={draft.maxDistance >= DISTANCE_MAX_KM ? "Any" : `Up to ${draft.maxDistance} km`}
+                            value={
+                                draft.maxDistance >= DISTANCE_MAX_KM
+                                    ? "Any"
+                                    : `Up to ${draft.maxDistance} km${draft.center ? " from that place" : ""}`
+                            }
                         >
                             <Slider.Root
                                 value={draft.maxDistance}
@@ -240,7 +277,10 @@ export default function BrowseFilterButton() {
                     <div className="mt-8 flex items-center gap-4">
                         <button
                             type="button"
-                            onClick={() => setDraft(DEFAULT_FILTERS)}
+                            onClick={() => {
+                                setDraft(DEFAULT_FILTERS);
+                                setPlaceFieldKey((k) => k + 1);
+                            }}
                             className="cursor-pointer text-sm font-medium text-grey transition hover:text-ink"
                         >
                             Reset

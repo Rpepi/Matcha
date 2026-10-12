@@ -61,6 +61,8 @@ export default function ResetPasswordPage() {
                 </div>
             ) : (
                 <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
+                    {/* Chrome flags a password form without a username field; this page has no username to show. */}
+                    <input type="text" name="username" autoComplete="username" readOnly hidden />
                     <Field
                         label="New password"
                         id="password"

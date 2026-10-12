@@ -16,8 +16,12 @@ export default function VerifyPage() {
             if (hasRequested.current === false)
             {
                 hasRequested.current = true
+                if (!token) {
+                    setError("This link is incomplete. Open the link from your email again.");
+                    return;
+                }
                 try {
-                    const response = await fetch(`/api/auth/verify?token=${token}`, {
+                    const response = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`, {
                         method: 'GET',
                         headers: {'Content-Type' : 'application/json'}
                     });

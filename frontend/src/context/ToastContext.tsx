@@ -17,6 +17,16 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 const AUTO_DISMISS_MS = 5000;
+const FALLBACK_MESSAGE = "Something went wrong. Please try again.";
+
+/**
+ * Callers often pass `data?.detail` straight from an API answer. That is a
+ * string for the app's own errors, but FastAPI's validation errors carry a list
+ * there: rendering anything but a string would crash the whole page.
+ */
+function toText(message: unknown): string {
+    return typeof message === "string" && message.trim() !== "" ? message : FALLBACK_MESSAGE;
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
     const [toast, setToast] = useState<ToastState | null>(null);
@@ -31,7 +41,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const show = useCallback((message: string, variant: ToastVariant) => {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         const id = ++nextId.current;
-        setToast({ id, message, variant });
+        setToast({ id, message: toText(message), variant });
         timeoutRef.current = setTimeout(() => {
             setToast((current) => (current?.id === id ? null : current));
         }, AUTO_DISMISS_MS);

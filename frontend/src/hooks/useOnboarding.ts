@@ -5,6 +5,7 @@ import { updateProfile, updateLocation } from "../api/profile";
 import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "../api/photos";
 import { updateTags } from "../api/tags";
 import { reverseGeocode } from "../lib/nominatim";
+import { locateByIp, type Place } from "../lib/locateByIp";
 
 export const STEP_COUNT = 7;
 
@@ -35,6 +36,24 @@ export function useOnboarding() {
     const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
+    // Position found from the connection, without asking (see locateByIp); bumping
+    // the version re-mounts the location field so it shows the place found.
+    const approximatePlace = useRef<Place | null>(null);
+    const [approximateVersion, setApproximateVersion] = useState(0);
+    // Set once the user picks a place or shares their GPS position: the estimate never overrides that.
+    const userPickedLocation = useRef(false);
+
+    async function applyApproximatePlace(): Promise<Place | null> {
+        const place = approximatePlace.current ?? await locateByIp();
+        approximatePlace.current = place;
+        if (!place || userPickedLocation.current) return place;
+        setLatitude(place.latitude);
+        setLongitude(place.longitude);
+        if (place.city) setCity(place.city);
+        setApproximateVersion((v) => v + 1);
+        return place;
+    }
+
     useEffect(() => {
         if (status === 'loading' || hasHydrated.current || !profile) return;
         hasHydrated.current = true;
@@ -56,6 +75,8 @@ export function useOnboarding() {
             );
         }
         setIsHydrating(false);
+        // Located right away, whether or not they share their GPS position later.
+        if (profile.latitude == null || profile.longitude == null) void applyApproximatePlace();
     }, [status, profile]);
 
     function goNext() {
@@ -121,13 +142,21 @@ export function useOnboarding() {
             navigator.geolocation.getCurrentPosition(async (position) => {
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
+                userPickedLocation.current = true;
                 setLatitude(lat);
                 setLongitude(lon);
                 const cityName = await reverseGeocode(lat, lon);
                 if (cityName) setCity(cityName);
                 resolve(cityName);
             },
-            (geoError) => {
+            async (geoError) => {
+                // Not sharing the GPS position is fine: the user stays located from their connection.
+                const place = await applyApproximatePlace();
+                if (place && !userPickedLocation.current) {
+                    setError(`We placed you near ${place.city ?? "your current area"} from your connection. Search for your neighborhood to be more precise.`);
+                    resolve(place.city);
+                    return;
+                }
                 switch (geoError.code) {
                     case 1:
                         setError("Access to this location has been denied. Please allow it in your browser settings.");
@@ -152,6 +181,7 @@ export function useOnboarding() {
     }
 
     function handleSelectLocation(selectedCity: string, lat: number, lon: number) {
+        userPickedLocation.current = true;
         setCity(selectedCity);
         setLatitude(lat);
         setLongitude(lon);
@@ -299,6 +329,7 @@ export function useOnboarding() {
         deletePhoto,
         error,
         isLoading,
+        approximateVersion,
         goNext,
         goBack,
         HandleUseLocation,

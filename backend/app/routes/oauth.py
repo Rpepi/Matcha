@@ -20,7 +20,9 @@ from google.auth.exceptions import GoogleAuthError
 
 
 
-FRONTEND_URL = os.getenv("FRONTEND_URL")
+# Redirects are built as FRONTEND_URL + "/path": a trailing slash in .env would
+# give "//path", which the frontend answers with "Page not found".
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")

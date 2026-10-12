@@ -3,7 +3,7 @@ from fastapi import HTTPException
 
 from app.validation import (
     clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
-    parse_int_param, parse_choice_param, parse_tags_param, valid_target_id,
+    parse_int_param, parse_float_param, parse_choice_param, parse_tags_param, valid_target_id,
     GENDERS, MAX_ID, MIN_USERNAME, MAX_USERNAME, MAX_TAGS_FILTER, MAX_TAG,
 )
 
@@ -198,6 +198,22 @@ class TestCleanFloat:
 
 
 # ── parse_int_param ───────────────────────────────────────────────────────────
+
+class TestParseFloatParam:
+    def test_absent_is_none(self):
+        assert parse_float_param(None, "lat", -90, 90) is None
+
+    @pytest.mark.parametrize("value, expected", [("13.7563", 13.7563), ("-90", -90.0), ("100", 100.0), ("0.5", 0.5)])
+    def test_parses_plain_decimals(self, value, expected):
+        assert parse_float_param(value, "lat", -180, 180) == expected
+
+    @pytest.mark.parametrize("value", ["", "nan", "inf", "-inf", "1e3", "1.", ".5", " 5", "5 ", "+5", "1,5", "1234.5", "5\x00", "1.1234567890123456"])
+    def test_anything_but_a_plain_decimal_is_rejected(self, value):
+        assert status_of(parse_float_param, value, "lat", -1000, 1000) == 400
+
+    def test_out_of_range_rejected(self):
+        assert status_of(parse_float_param, "90.1", "lat", -90, 90) == 400
+
 
 class TestParseIntParam:
     def test_absent_is_none(self):

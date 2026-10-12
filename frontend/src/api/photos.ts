@@ -17,6 +17,15 @@ export async function deletePhoto(position: number): Promise<Response> {
     return response
 }
 
+/** The photo moves to slot 1 and becomes the profile picture. */
+export async function setProfilePhoto(position: number): Promise<Response> {
+    const response = await fetch(`/api/profile/photos/${position}/profile`, {
+        method: 'PUT',
+        credentials: 'include',
+    })
+    return response
+}
+
 export async function movePhoto(from: number, to: number): Promise<Response> {
     const response = await fetch(`/api/profile/photos/${from}/move`, {
         method: 'PUT',

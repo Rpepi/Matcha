@@ -1,6 +1,12 @@
 export type BrowseSort = "score" | "age" | "distance" | "fame" | "tags";
 export type SortOrder = "asc" | "desc";
 
+export interface SearchCenter {
+    label: string;
+    latitude: number;
+    longitude: number;
+}
+
 export interface BrowseFilters {
     minAge: number;
     maxAge: number;
@@ -11,6 +17,8 @@ export interface BrowseFilters {
     minTags: number;
     /** Tags every profile must carry (chosen by name, whatever the current user's own tags are). */
     tags: string[];
+    /** Search around this place instead of around the user (the distance filter is measured from it). */
+    center: SearchCenter | null;
     sort: BrowseSort;
     order: SortOrder;
 }
@@ -18,6 +26,8 @@ export interface BrowseFilters {
 export const AGE_MIN = 16;
 export const AGE_MAX = 99;
 export const DISTANCE_MAX_KM = 200;
+/** Radius applied when a place is picked while the distance is still "Any". */
+export const PLACE_RADIUS_KM = 50;
 export const FAME_MAX = 100;
 export const TAGS_MAX = 5;
 /** Same cap as the API: at most 5 named tags per search. */
@@ -40,6 +50,7 @@ export const DEFAULT_FILTERS: BrowseFilters = {
     maxFame: FAME_MAX,
     minTags: 0,
     tags: [],
+    center: null,
     sort: "score",
     order: SORT_OPTIONS.score.defaultOrder,
 };

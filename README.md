@@ -12,7 +12,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![Tests](https://img.shields.io/badge/tests-1300%2B-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1450%2B-brightgreen)](#testing)
 
 [Quick start](#-quick-start) · [Architecture](#-architecture) · [API](#-api-reference) · [Configuration](#-configuration) · [Development](#-development) · [Security](#-security)
 
@@ -50,14 +50,14 @@
 
 | Area | What you can do |
 |---|---|
-| **Accounts** | Register with email, **username**, names and password (common passwords refused). Confirm by email link before the account works. Log in with username **or** email. Reset a forgotten password by email. Google sign-in. Log out from any page, including on mobile. |
-| **Profile** | Gender, orientation, bio, interests (tags), up to 5 photos with a profile picture, birth date, location (GPS or typed city). Every field, including username and email, can be edited at any time. |
-| **Suggestions** | Profiles compatible with your orientation, ranked by common interests, fame, age gap and distance. |
-| **Search** | Filter by age, distance, fame range, number of shared interests and **specific interests**. Sort by best match, age, distance, fame or shared interests. |
+| **Accounts** | Register with email, **username**, names and password (common passwords refused). Confirm by email link before the account works. Log in with username **or** email. Reset a forgotten password by email, or change it from the profile page. Google sign-in. Log out from any page, including on mobile. |
+| **Profile** | Gender, orientation, bio, interests (tags), up to 5 photos with a profile picture you choose, birth date, location (GPS, a typed city, or found from the connection when GPS is refused). Every field, including username and email, can be edited at any time. |
+| **Suggestions** | Profiles compatible with your orientation **both ways** (you could be interested in them and they in you), ranked by common interests, fame, age gap and distance. |
+| **Search** | Filter by age, distance (around you or **around any place**), fame range, number of shared interests and **specific interests**. Sort by best match, age, distance, fame or shared interests; every card shows its distance, fame and interests in common. |
 | **Interactions** | Like / unlike (a profile picture of your own is required), matches, block, report as a fake account, see who visited you and who liked you, see whether someone likes you, online status and last seen. |
 | **Chat** | Real-time messages between matched users only. Unread badge on every page. |
 | **Notifications** | Real-time for likes, visits, messages, matches and unlikes, with an unread badge on every page. |
-| **Quality of life** | Responsive layout down to phone width, friendly 404 page, toasts for every error and success. |
+| **Quality of life** | Responsive layout down to phone width, friendly 404 page, toasts for every error and success, a console that stays clean (see [Design decisions](#design-decisions)). |
 
 ---
 
@@ -175,7 +175,7 @@ flowchart TB
 ```
 
 - Every port is published on `127.0.0.1` only: nothing is exposed to the network.
-- The `backend` container runs the pending migrations, then `uvicorn` with `--timeout-graceful-shutdown 3`: without it, an open SSE stream would make every reload and every stop wait forever.
+- The `backend` image's start command (its `CMD`, in [`backend/Dockerfile`](backend/Dockerfile)) runs the pending migrations, then `uvicorn` with `--timeout-graceful-shutdown 3`: without it, an open SSE stream would make every reload and every stop wait forever.
 - Hostnames are the Compose service names (`db`, `cache`, `backend`, `mailpit`).
 
 ### Request pipeline
@@ -439,18 +439,22 @@ The authentication state has four values (`loading`, `guest`, `incomplete`, `com
 | **Explicit transactions** | Connections are not autocommit: handlers commit, and publish only after the commit. |
 | **Photos re-encoded and served through the API** | Content is checked by magic bytes and Pillow, never by the client's file name or declared type, and only logged-in users can fetch a photo. |
 | **Migrations at container start** | A fresh database is ready with no manual step; the migration runner is idempotent. |
+| **"Soft" client errors for the browser** | Chrome prints every 4xx answer to `fetch` as a red "Failed to load resource" line, even an expected one (wrong password). The frontend sends `X-Soft-Errors: 1`; the backend then answers a 4xx as a 200 with the real status in `X-Status`, and a fetch wrapper ([`lib/softErrors.ts`](frontend/src/lib/softErrors.ts)) restores it before app code sees it. Other clients and the tests get real statuses; a 5xx is never softened. |
+| **Located without asking** | The subject wants users located even when they refuse GPS: their IP is looked up (ip-api.com, then ipwho.is) as soon as they start setting up their profile, and kept only while they have no better position. |
 
 ---
 
 ## 💘 How matching works
 
-**Who can appear in your suggestions:** verified users with a complete profile and a location, excluding yourself, anyone you blocked or who blocked you, and anyone not compatible with your orientation.
+**Who can appear in your suggestions:** verified users with a complete profile and a location, excluding yourself, anyone you blocked or who blocked you, and anyone not compatible **both ways**: you must be interested in their gender and they in yours ([`app/matching.py`](backend/app/matching.py)).
 
-| Your orientation | You see |
+| Orientation | Interested in |
 |---|---|
-| `hetero` (male or female) | the opposite gender, who is `hetero` or `bi` |
-| `homo` | the same gender, who is `homo` or `bi` |
-| `bi` (the default) | everyone |
+| `hetero` | the other binary gender (male ↔ female); `other` + `hetero` is interested in men and women |
+| `homo` | the same gender |
+| `bi`, or not given (the subject's default) | everyone |
+
+So a bisexual man is shown women who are `hetero` or `bi` and men who are `homo` or `bi`, never a heterosexual man.
 
 **Ranking:**
 
@@ -458,14 +462,15 @@ The authentication state has four values (`loading`, `guest`, `incomplete`, `com
 score = 20 × (tags in common)  +  0.5 × fame  −  |age gap|  −  0.1 × distance in km
 ```
 
-**Fame rating** = likes received + how many of those are reciprocated (matches). It is recomputed in the same transaction as every like, unlike and block.
+**Fame rating** = likes received + how many of those are reciprocated (matches): being liked counts, being liked back by someone you liked counts double. It is recomputed in the same transaction as every like, unlike and block, shown as is on every profile and card, and is what the fame filter and sort use. The seed gives the 500 fake users likes and visits between themselves (a few very popular profiles, most with a handful), so fame is spread from 0 to about 80 from the start.
 
 **Search parameters** of `GET /users` (all optional, all validated before the query runs):
 
 | Parameter | Meaning |
 |---|---|
 | `min_age`, `max_age` | Age range (16 to 120) |
-| `max_distance` | Kilometres from you (0 to 40 000) |
+| `max_distance` | Kilometres from you, or from the searched place (0 to 40 000) |
+| `lat`, `lon` | A searched place (together): `max_distance` is measured from it. Distances shown and the distance sort stay measured from you. |
 | `min_fame`, `max_fame` | Fame range |
 | `min_tags` | At least N interests in common with you (0 to 5) |
 | `tags=beach,tech` | Profiles that carry **all** the named interests (at most 5) |
@@ -503,7 +508,9 @@ Base URL `http://localhost:5000` (or `/api/...` through the frontend). Authentic
 | Method | Route | Description |
 |---|---|---|
 | GET / PUT | `/profile/me` | Read / update any of `username`, `first_name`, `last_name`, `email`, `gender`, `orientation`, `bio`, `birth_date`, `city`, `tags` (100/h). Changing the email re-sends a verification mail. |
+| PUT | `/profile/password` | `current_password` + `new_password` (10/h); closes your other sessions |
 | PUT | `/profile/location` | GPS coordinates |
+| POST | `/profile/location/approximate` | Locate from the IP address (30/h); stored only if you have no position yet. `{located: false}` when it cannot be found |
 | GET | `/tags` | The tag vocabulary (`?search=`) |
 | GET / PUT | `/profile/tags` | Your tags (at most 5) |
 | DELETE | `/profile/tags/{name}` | Remove one of your tags |
@@ -511,8 +518,9 @@ Base URL `http://localhost:5000` (or `/api/...` through the frontend). Authentic
 | POST | `/profile/photos` | Upload (5/h), JPEG or PNG up to 5 MB, 5 photos maximum |
 | GET | `/profile/photos/{position}` | One of your photos |
 | PUT | `/profile/photos/{position}/move` | Swap or move a photo |
+| PUT | `/profile/photos/{position}/profile` | Make it the profile picture (it moves to slot 1) |
 | DELETE | `/profile/photos/{position}` | Delete a photo |
-| GET | `/profile/me/visits` | Who visited you (newest first, 50 at most, blocked users excluded) |
+| GET | `/profile/me/visits` | Who visited you, with the date of their latest visit (newest first, 50 at most, blocked users excluded) |
 | GET | `/profile/me/likes` | Who liked you (newest first, 50 at most) |
 | GET | `/profile/me/blocked` | Users you blocked |
 
@@ -524,7 +532,7 @@ Base URL `http://localhost:5000` (or `/api/...` through the frontend). Authentic
 | Method | Route | Limit | Description |
 |---|---|---|---|
 | GET | `/users` | 30/min per account | Suggestions and search (see [How matching works](#-how-matching-works)) |
-| GET | `/users/{id}` | | Public profile; records a visit. Returns `is_liked_by_me`, `likes_me`, `is_match`, `is_online`, `last_seen`. |
+| GET | `/users/{id}` | | Public profile; records a visit (notified, unless the same visitor came in the last 10 s). Returns `is_liked_by_me`, `likes_me`, `is_match`, `is_online`, `last_seen`, `distance_km`. |
 | GET | `/users/{id}/photos/{position}` | | A user's photo |
 | POST / DELETE | `/users/{id}/like` | 20/min per account | Like / unlike. Needs **your own** profile picture (403 otherwise). |
 | POST / DELETE | `/users/{id}/block` | 10/min per account | Block / unblock (blocking removes likes between the two) |
@@ -548,7 +556,7 @@ Base URL `http://localhost:5000` (or `/api/...` through the frontend). Authentic
 
 </details>
 
-Errors are always `{"detail": "..."}` with a meaningful status: `400` invalid input, `401` not logged in, `403` forbidden, `404` not found, `409` conflict (email or username taken), `413` body too large, `415` not JSON, `429` rate limited.
+Errors are always `{"detail": "..."}` (a string) with a meaningful status: `400` invalid input, `401` not logged in, `403` forbidden, `404` not found, `409` conflict (email or username taken), `413` body too large, `415` not JSON, `429` rate limited. With the request header `X-Soft-Errors: 1` (sent by the frontend), a 4xx comes back as a `200` carrying the real status in `X-Status` (see [Design decisions](#design-decisions)).
 
 ---
 
@@ -565,7 +573,7 @@ Errors are always `{"detail": "..."}` with a meaningful status: `400` invalid in
 | **Brute force / flooding** | Token-bucket rate limits per IP before login and per account after (see the API tables), including per chat frame. |
 | **Account enumeration** | Same answer and same timing for unknown accounts at login and password reset. |
 | **Email link abuse** | Signed, expiring, single-use links; a verification link is bound to the address it was issued for. |
-| **Hostile input** | Every field is validated before it reaches the database, the hasher or the file system: type, length, control characters, NUL bytes, lone surrogates, integer range. Over 470 tests feed hostile values to every endpoint. |
+| **Hostile input** | Every field is validated before it reaches the database, the hasher or the file system: type, length, control characters, NUL bytes, lone surrogates, integer range. Hundreds of tests feed hostile values to every endpoint. |
 | **WebSocket hijacking** | `Origin` must match the frontend; max frame size 16 KB; the match is checked before the socket is accepted. |
 | **Secrets** | Live in `.env`, which git ignores; the app refuses to start when one is missing. |
 
@@ -603,7 +611,7 @@ docker compose exec backend python -m app.seed                   # fake profiles
 ### Testing
 
 ```bash
-docker compose exec backend python -m pytest tests/ -v             # ~1300 tests, ~12 s
+docker compose exec backend python -m pytest tests/ -v             # ~1450 tests, ~20 s
 docker compose exec backend python -m pytest tests/routes/test_users.py -v
 docker compose exec frontend npm run lint                          # oxlint
 docker compose exec frontend npm run build                         # type-check + production build
@@ -646,7 +654,7 @@ docker compose exec frontend npm run build                         # type-check 
 │   │   ├── validation.py       # every input check
 │   │   ├── utils.py            # JSON body reader, image checks and processing
 │   │   └── seed.py             # 500 fake profiles
-│   └── tests/                  # ~1300 tests
+│   └── tests/                  # ~1450 tests
 └── frontend/
     └── src/
         ├── pages/              # one per route
@@ -667,20 +675,20 @@ Where each point of the 42 evaluation grid lives, for a quick defence.
 | Passwords encrypted, SQL injection, validation | Argon2id (`security/passwords.py`), bound parameters everywhere, `validation.py` + hostile-input tests |
 | Install and seed (500 profiles) | [Quick start](#-quick-start); `app/seed.py` creates exactly 500 verified, complete profiles |
 | Registration with email, username, names, password; email link | `routes/authentification.py`; the account cannot log in before verification |
-| Login with username, password reset by email, logout from any page | `POST /auth/login`, `/forgot-password` + `/reset-password` pages, sidebar logout on desktop and in the mobile bar |
-| Extended profile (sex, orientation, bio, tags, 5 photos), editable | `routes/profile.py`, profile page and onboarding wizard |
-| Visit history and who liked you | `/profile/me/visits`, `/profile/me/likes`; **Visitors** and **Likes** tabs on the Messages page |
+| Login with username, password reset by email, logout from any page | `POST /auth/login`, `/forgot-password` + `/reset-password` pages, log out in the sidebar (desktop), the bottom bar (phones) and the profile setup header |
+| Extended profile (sex, orientation, bio, tags, 5 photos), editable | `routes/profile.py`, profile page and onboarding wizard; the star on a photo makes it the profile picture; the password can be changed on the profile page too |
+| Visit history and who liked you | `/profile/me/visits` (latest visit of each visitor), `/profile/me/likes`; **Visitors** and **Likes** tabs on the Messages page |
 | Fame rating | Likes received + matches, see [How matching works](#-how-matching-works) |
-| GPS location, manual fallback, editable | Browser geolocation with a typed-city search (OpenStreetMap), editable on the profile page |
-| Suggestions weighted by area, tags and fame; consistent with orientation | `GET /users`, score formula above |
-| Advanced search, sort and filters | Filters dialog: age, distance, fame range, shared and specific interests; sort by score, age, distance, fame, tags |
-| Public profile, online / last seen | `GET /users/{id}`, `is_online` and `last_seen` fed by `presence.py` |
+| GPS location, located even without consent, editable | Browser geolocation; without it, the IP address (`POST /profile/location/approximate`, called as soon as profile setup starts); a typed-city search (OpenStreetMap); editable on the profile page |
+| Suggestions weighted by area, tags and fame; consistent with orientation | `GET /users`, score formula above; compatibility checked both ways (`app/matching.py`) |
+| Advanced search, sort and filters | Filters dialog: age, distance around you or around a searched place, fame range, shared and specific interests; sort by score, age, distance, fame, tags; cards show distance, fame and interests in common |
+| Public profile, online / last seen | `GET /users/{id}`: everything but email and password (full name, gender, orientation, bio, tags, photos, age, city, distance, fame); `is_online` and `last_seen` fed by `presence.py` |
 | Like / unlike, connection, picture required | `POST /users/{id}/like`; "likes you" and "connected" shown on the profile |
 | Report and block | Report menu and Block button on every profile; blocked users vanish from suggestions and notifications |
 | Real-time chat (≤ 10 s), unread everywhere | WebSocket + Redis pub/sub; badge in the navigation on every page |
 | Real-time notifications, unread badge | SSE + Redis pub/sub; the five events of the subject |
-| Console clean, no 5xx | Dedicated `/auth/session` route (a visitor is not a 401), catch-all 404 route |
-| Mobile | Responsive layout down to phone width |
+| Console clean, no 5xx | Soft client errors (no red line for an expected 4xx), dedicated `/auth/session` route (a visitor is not a 401), catch-all 404 route; checked in Chrome and Firefox through a whole session |
+| Mobile | Responsive layout down to 320px wide, log out in the bottom bar |
 
 ---
 
@@ -694,7 +702,7 @@ Where each point of the 42 evaluation grid lives, for a quick defence.
 | The verification email never arrives | Open Mailpit at <http://localhost:8025>: all mail goes there, none leaves the machine. |
 | `429 Too many requests` while testing | The rate limits are real. Wait a minute, or run `docker compose restart cache` to clear them. |
 | The database must be recreated | `docker compose down -v`, then `docker compose up --build` and seed again. |
-| A reload hangs | Fixed by `--timeout-graceful-shutdown 3` in Compose; if you run uvicorn yourself, pass the same flag. |
+| A reload hangs | Fixed by `--timeout-graceful-shutdown 3` in the backend Dockerfile; if you run uvicorn yourself, pass the same flag. |
 
 ---
 

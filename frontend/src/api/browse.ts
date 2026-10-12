@@ -29,6 +29,10 @@ export async function getBrowseProfiles(page: number, filters: BrowseFilters = D
     if (filters.maxFame !== DEFAULT_FILTERS.maxFame) params.set('max_fame', String(filters.maxFame));
     if (filters.minTags !== DEFAULT_FILTERS.minTags) params.set('min_tags', String(filters.minTags));
     if (filters.tags.length > 0) params.set('tags', filters.tags.join(','));
+    if (filters.center) {
+        params.set('lat', filters.center.latitude.toFixed(6));
+        params.set('lon', filters.center.longitude.toFixed(6));
+    }
     // The API picks each sort's usual direction when `order` is absent: only say what differs.
     if (filters.sort !== DEFAULT_FILTERS.sort) params.set('sort', filters.sort);
     if (filters.order !== SORT_OPTIONS[filters.sort].defaultOrder) params.set('order', filters.order);

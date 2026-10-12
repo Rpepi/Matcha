@@ -64,6 +64,11 @@ function isChatMessage(data: unknown): data is ChatMessage {
     );
 }
 
+/** Sent by the server right before it closes the socket, when either user unlikes or blocks the other. */
+function isUnmatchFrame(data: unknown): boolean {
+    return typeof data === "object" && data !== null && (data as Record<string, unknown>).type === "unmatch";
+}
+
 function isErrorFrame(data: unknown): data is { type: "error"; detail: string } {
     if (typeof data !== "object" || data === null) return false;
     const f = data as Record<string, unknown>;
@@ -226,6 +231,10 @@ export function useChat(options: UseChatOptions) {
                 return;
             }
 
+            if (isUnmatchFrame(data)) {
+                handleAccessFailure(403); // the match is over: same outcome as a refused history request
+                return;
+            }
             if (isErrorFrame(data)) {
                 latest.current.showError(data.detail);
                 latest.current.onRejected(lastSentRef.current);
@@ -271,7 +280,8 @@ export function useChat(options: UseChatOptions) {
             current.onmessage = (event) => handleFrame(event.data);
             current.onclose = () => {
                 if (socketRef.current === current) socketRef.current = null;
-                if (!disposed) void recover();
+                // After an unmatch frame there is nothing to reconnect to.
+                if (!disposed && !deniedRef.current) void recover();
             };
         }
 
