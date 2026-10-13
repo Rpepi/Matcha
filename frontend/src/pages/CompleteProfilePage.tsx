@@ -76,6 +76,7 @@ export default function CompleteProfilePage() {
             {step === 1 && (
                 <OrientationStep
                     key={step}
+                    gender={gender}
                     orientation={orientation}
                     setOrientation={setOrientation}
                     onBack={goBack}

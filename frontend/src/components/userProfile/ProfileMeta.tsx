@@ -1,15 +1,10 @@
 import { Fragment, type ReactNode } from "react";
 import { MapPin } from "lucide-react";
+import { orientationLabel } from "@/lib/orientation";
 
 function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
 }
-
-const ORIENTATION_LABELS: Record<string, string> = {
-    hetero: "Heterosexual",
-    homo: "Homosexual",
-    bi: "Bisexual",
-};
 
 interface ProfileMetaProps {
     profile: {
@@ -25,7 +20,7 @@ export default function ProfileMeta({ profile }: ProfileMetaProps) {
     const items: ReactNode[] = [];
     if (profile.gender) items.push(capitalize(profile.gender));
     // No orientation given counts as bisexual (the subject's rule), so it is always shown.
-    items.push(ORIENTATION_LABELS[profile.orientation ?? "bi"] ?? capitalize(profile.orientation ?? "bi"));
+    items.push(orientationLabel(profile.orientation, profile.gender));
     if (profile.city) {
         items.push(
             <span className="flex items-center gap-1.5">
