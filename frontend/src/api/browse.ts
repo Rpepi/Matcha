@@ -1,4 +1,5 @@
 import { DEFAULT_FILTERS, SORT_OPTIONS, type BrowseFilters } from "../lib/browseFilters";
+import { sharedGet } from "../lib/sharedGet";
 
 export interface BrowseProfile {
     id: number;
@@ -39,8 +40,6 @@ export async function getBrowseProfiles(page: number, filters: BrowseFilters = D
     if (filters.sort !== DEFAULT_FILTERS.sort) params.set('sort', filters.sort);
     if (filters.order !== SORT_OPTIONS[filters.sort].defaultOrder) params.set('order', filters.order);
 
-    const response = await fetch(`/api/users?${params.toString()}`, {
-        credentials: 'include',
-    })
-    return response
+    // Shared while in flight (see lib/sharedGet): development mode loads the first page twice.
+    return sharedGet(`/api/users?${params.toString()}`)
 }
