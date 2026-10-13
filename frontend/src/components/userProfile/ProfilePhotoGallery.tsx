@@ -11,7 +11,6 @@ interface ProfilePhotoGalleryProps {
     profile: {
         id: number;
         first_name: string;
-        is_online: boolean;
         photos: UserPhoto[];
     };
     photoUrl: (photo: UserPhoto) => string;
@@ -69,13 +68,6 @@ export default function ProfilePhotoGallery({ profile, photoUrl, backTo, backLab
                                 className={`h-1 rounded-full ${i === index ? "bg-paper" : "bg-paper/45"}`}
                             />
                         ))}
-                    </div>
-                )}
-
-                {profile.is_online && (
-                    <div className="flex items-center gap-2 self-start rounded-full bg-paper/90 px-3 py-1.5 text-sm font-medium text-ink">
-                        <span className="h-2 w-2 rounded-full bg-matcha" />
-                        Active now
                     </div>
                 )}
             </div>
