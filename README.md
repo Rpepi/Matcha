@@ -50,7 +50,7 @@
 
 | Area | What you can do |
 |---|---|
-| **Accounts** | Register with email, **username**, names and password (common passwords refused). Confirm by email link before the account works. Log in with username **or** email. Reset a forgotten password by email, or change it from the profile page. Google sign-in. Log out from any page, including on mobile. |
+| **Accounts** | Register with email, **username**, names and password (common passwords refused). Confirm by email link before the account works. Log in with username **or** email. Reset a forgotten password by email, or change it from the profile page. Google sign-in. Log out from the sidebar on every page (on phones: at the bottom of the profile page). |
 | **Profile** | Gender, orientation, bio, interests (tags), up to 5 photos with a profile picture you choose, birth date, location (GPS, a typed city, or found from the connection when GPS is refused). Every field, including username and email, can be edited at any time. |
 | **Suggestions** | Profiles compatible with your orientation **both ways** (you could be interested in them and they in you), ranked by common interests, fame, age gap and distance. |
 | **Search** | Filter by age, distance (around you or **around any place**), fame range, number of shared interests and **specific interests**. Sort by best match, age, distance, fame or shared interests; every card shows its distance, fame and interests in common. |
@@ -675,7 +675,7 @@ Where each point of the 42 evaluation grid lives, for a quick defence.
 | Passwords encrypted, SQL injection, validation | Argon2id (`security/passwords.py`), bound parameters everywhere, `validation.py` + hostile-input tests |
 | Install and seed (500 profiles) | [Quick start](#-quick-start); `app/seed.py` creates exactly 500 verified, complete profiles |
 | Registration with email, username, names, password; email link | `routes/authentification.py`; the account cannot log in before verification |
-| Login with username, password reset by email, logout from any page | `POST /auth/login`, `/forgot-password` + `/reset-password` pages, log out in the sidebar (desktop), the bottom bar (phones) and the profile setup header |
+| Login with username, password reset by email, logout from any page | `POST /auth/login`, `/forgot-password` + `/reset-password` pages, log out in the sidebar (desktop), at the bottom of the profile page (phones) and in the profile setup header |
 | Extended profile (sex, orientation, bio, tags, 5 photos), editable | `routes/profile.py`, profile page and onboarding wizard; the star on a photo makes it the profile picture; the password can be changed on the profile page too |
 | Visit history and who liked you | `/profile/me/visits` (latest visit of each visitor), `/profile/me/likes`; **Visitors** and **Likes** tabs on the Messages page |
 | Fame rating | Likes received + matches, see [How matching works](#-how-matching-works) |
@@ -688,7 +688,7 @@ Where each point of the 42 evaluation grid lives, for a quick defence.
 | Real-time chat (≤ 10 s), unread everywhere | WebSocket + Redis pub/sub; badge in the navigation on every page |
 | Real-time notifications, unread badge | SSE + Redis pub/sub; the five events of the subject |
 | Console clean, no 5xx | Soft client errors (no red line for an expected 4xx), dedicated `/auth/session` route (a visitor is not a 401), catch-all 404 route; checked in Chrome and Firefox through a whole session |
-| Mobile | Responsive layout down to 320px wide, log out in the bottom bar |
+| Mobile | Responsive layout down to 320px wide; browse by swiping or with the ‹ › buttons (also the mouse wheel and the arrow keys on a computer) |
 
 ---
 
