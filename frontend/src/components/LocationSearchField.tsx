@@ -7,20 +7,36 @@ interface LocationSearchFieldProps {
     onUseLocation: () => Promise<string | null>;
     onSelectLocation: (city: string, latitude: number, longitude: number) => void;
     onClearLocation: () => void;
+    label?: string;
+    /** The button next to the label; `onUseLocation` resolves with the text to show (null keeps the current text). */
+    actionLabel?: string;
+    placeholder?: string;
 }
 
-export default function LocationSearchField({ city, onUseLocation, onSelectLocation, onClearLocation }: LocationSearchFieldProps) {
+export default function LocationSearchField({
+    city,
+    onUseLocation,
+    onSelectLocation,
+    onClearLocation,
+    label = "City or neighborhood",
+    actionLabel = "Use my position",
+    placeholder = "Search for your city or neighborhood",
+}: LocationSearchFieldProps) {
     const [query, setQuery] = useState(city);
     const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [isLocating, setIsLocating] = useState(false);
-    const skipSearchFor = useRef<string | null>(null);
+    // The text of the place currently chosen (given, picked or located): showing it is not a search.
+    // Without this, a field opened with a city already in it searched for it straight away and popped
+    // the suggestions open over the buttons below. Not cleared once used: React's development mode
+    // runs the effect twice, and the second run must not search either.
+    const chosenText = useRef(city);
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (skipSearchFor.current === query) {
-            skipSearchFor.current = null;
+        if (query === chosenText.current) {
+            setSuggestions([]);
             return;
         }
         if (query.trim().length < 3) {
@@ -63,7 +79,7 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
 
     function handleSelect(result: NominatimResult) {
         const label = formatPlaceLabel(result);
-        skipSearchFor.current = label;
+        chosenText.current = label;
         setQuery(label);
         setShowSuggestions(false);
         setSuggestions([]);
@@ -73,8 +89,8 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
     async function handleUseLocationClick() {
         setIsLocating(true);
         const cityName = await onUseLocation();
-        if (cityName) {
-            skipSearchFor.current = cityName;
+        if (cityName !== null) {
+            chosenText.current = cityName;
             setQuery(cityName);
             setShowSuggestions(false);
         }
@@ -84,21 +100,21 @@ export default function LocationSearchField({ city, onUseLocation, onSelectLocat
     return (
         <div>
             <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-sm font-medium text-ink/80">City or neighborhood</span>
+                <span className="text-sm font-medium text-ink/80">{label}</span>
                 <button
                     type="button"
                     onClick={handleUseLocationClick}
                     disabled={isLocating}
                     className="text-xs font-medium text-orchid hover:underline disabled:opacity-50"
                 >
-                    {isLocating ? "Locating…" : "Use my position"}
+                    {isLocating ? "Locating…" : actionLabel}
                 </button>
             </div>
             <div ref={containerRef} className="relative">
                 <Field
                     id="city"
                     type="text"
-                    placeholder="Search for your city or neighborhood"
+                    placeholder={placeholder}
                     value={query}
                     onChange={(e) => {
                         setQuery(e.target.value);

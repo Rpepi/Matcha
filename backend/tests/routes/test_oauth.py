@@ -188,6 +188,14 @@ class TestOauthCallbackNewUser:
         assert "INSERT INTO users" in query
         assert params[-1] is True  # verified
 
+    async def test_new_account_is_marked_as_a_google_account(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
+
+        await do_callback(client, mock_redis)
+
+        query, _ = mock_db.execute.call_args_list[2].args
+        assert "auth_provider" in query and "'google'" in query
+
     async def test_new_account_gets_a_username_derived_from_the_first_name(self, client, mock_db, mock_redis):
         mock_db.execute = AsyncMock(side_effect=self.new_user_queries())
 
@@ -286,6 +294,17 @@ class TestOauthCallbackReclaimsUnverifiedAccount:
     """Regression coverage for the pre-registration hijack: an existing but
     unverified row for this email must be reclaimed for the Google identity,
     not silently logged into as-is."""
+
+    async def test_reclaimed_account_becomes_a_google_account(self, client, mock_db, mock_redis):
+        mock_db.execute = AsyncMock(side_effect=[
+            make_cursor(fetchone={"id": 5, "profile_complete": False, "verified": False}),
+            make_cursor(),  # UPDATE
+        ])
+
+        await do_callback(client, mock_redis)
+
+        query, _ = mock_db.execute.call_args_list[1].args
+        assert "auth_provider = 'google'" in query
 
     async def test_overwrites_password_and_marks_verified(self, client, mock_db, mock_redis):
         mock_db.execute = AsyncMock(side_effect=[

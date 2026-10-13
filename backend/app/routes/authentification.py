@@ -299,14 +299,16 @@ async def register(request: Request, response: Response, conn: AsyncConnection =
 
 @router.get("/auth/verify")
 async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
-    """Mark an email address as verified.
+    """Confirm an email address: the sign-up one, or a new one waiting to replace it.
 
     Reads the ``token`` query parameter, which must be a valid, unused
-    ``email-verify`` token less than one hour old, issued for the email
-    address currently on the account. A token from a previous address
-    (e.g. replayed after changing email) is rejected even if unexpired and
-    unused, so verifying one address never verifies a different one for
-    free.
+    ``email-verify`` token less than one hour old. It is issued for one
+    address and only confirms that one: either the address on the account
+    (marks it verified) or the account's ``pending_email`` (it replaces
+    ``email``, which is how an email change completes; the account stays
+    verified throughout). A token for any other address, such as one
+    replayed after the change was cancelled or replaced, is rejected even if
+    unexpired and unused.
 
     Args:
         request: Incoming request carrying the ``token`` query parameter.
@@ -314,13 +316,15 @@ async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis)
         conn: Database connection (injected dependency).
 
     Returns:
-        ``{"message": "Email verified. You can now log in."}``.
+        ``{"message": "Email verified. You can now log in."}``, or
+        ``{"message": "Email address changed."}`` when it was a pending one.
 
     Raises:
         HTTPException: 400 if the token is missing, malformed, invalid,
-            expired, already used, or was issued for an email address that
-            no longer matches the account; 503 if Redis fails while
-            checking/marking the token as used.
+            expired, already used, or was issued for an address that is
+            neither the account's email nor its pending one; 409 if the
+            pending address was taken by another account meanwhile; 503 if
+            Redis fails while checking/marking the token as used.
     """
     token = request.query_params.get("token")
     if not token:
@@ -348,9 +352,24 @@ async def verify_email(request: Request, redis: redis.Redis = Depends(get_redis)
         logger.exception(e)
         raise HTTPException(status_code=503, detail="Redis error")
 
-    cursor = await conn.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+    cursor = await conn.execute("SELECT email, pending_email FROM users WHERE id = %s", (user_id,))
     row = await cursor.fetchone()
-    if not row or row["email"] != email:
+    if not row:
+        raise HTTPException(status_code=400, detail="Invalid verification token")
+
+    if row["pending_email"] is not None and row["pending_email"] == email:
+        try:
+            await conn.execute(
+                "UPDATE users SET email = pending_email, pending_email = NULL, verified = true WHERE id = %s",
+                (user_id,),
+            )
+        except UniqueViolation:
+            await conn.rollback()
+            raise HTTPException(status_code=409, detail="Email already taken")
+        await conn.commit()
+        return {"message": "Email address changed."}
+
+    if row["email"] != email:
         raise HTTPException(status_code=400, detail="Invalid verification token")
 
     await conn.execute("UPDATE users SET verified = true WHERE id = %s", (user_id,))

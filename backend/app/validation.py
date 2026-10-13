@@ -33,6 +33,7 @@ _USERNAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _CONTROL_NO_NEWLINE_RE = re.compile(r"[\x00-\x1f\x7f]")
 _INT_PARAM_RE = re.compile(r"-?[0-9]{1,10}")
+_FLOAT_PARAM_RE = re.compile(r"-?[0-9]{1,3}(\.[0-9]{1,15})?")
 
 
 def clean_str(
@@ -228,6 +229,34 @@ def parse_int_param(value: str | None, name: str, lo: int, hi: int) -> int | Non
     if not _INT_PARAM_RE.fullmatch(value):
         raise HTTPException(status_code=400, detail=f"'{name}' must be an integer")
     number = int(value)
+    if not lo <= number <= hi:
+        raise HTTPException(status_code=400, detail=f"'{name}' must be between {lo} and {hi}")
+    return number
+
+
+def parse_float_param(value: str | None, name: str, lo: float, hi: float) -> float | None:
+    """Parse an optional decimal query parameter within ``lo..hi``.
+
+    Only plain ASCII decimals are accepted (``-12.5``, ``100``): no exponent,
+    no ``nan``/``inf``, at most 20 characters.
+
+    Args:
+        value: Raw parameter value, or ``None`` if absent.
+        name: Parameter name, used in the error message.
+        lo: Smallest accepted value.
+        hi: Largest accepted value.
+
+    Returns:
+        The number, or ``None`` if the parameter is absent.
+
+    Raises:
+        HTTPException: 400 if the value is not a decimal number in range.
+    """
+    if value is None:
+        return None
+    if not _FLOAT_PARAM_RE.fullmatch(value):
+        raise HTTPException(status_code=400, detail=f"'{name}' must be a number")
+    number = float(value)
     if not lo <= number <= hi:
         raise HTTPException(status_code=400, detail=f"'{name}' must be between {lo} and {hi}")
     return number

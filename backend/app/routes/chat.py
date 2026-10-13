@@ -24,7 +24,9 @@ HISTORY_DEFAULT_LIMIT = 30
 HISTORY_MAX_LIMIT = 50
 CONVERSATIONS_LIMIT = 200
 
-FRONTEND_URL = os.getenv("FRONTEND_URL")
+# Compared to the browser's Origin header, which never ends with "/": a trailing
+# slash in .env would otherwise refuse every chat connection.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 
 if not FRONTEND_URL:
     raise RuntimeError("env variable missing or not set")
@@ -216,12 +218,21 @@ async def chat_setup(websocket: WebSocket, target_id: int):
     await pubsub.subscribe(room_id)
 
     async def listen_pubsub():
-        """Relay chat messages to this websocket; return on an unmatch event."""
+        """Relay chat messages to this websocket; return on an unmatch event.
+
+        On an unmatch the client is told so with a ``{"type": "unmatch"}``
+        frame before the socket closes: it then knows the conversation is
+        over without asking the server (which would answer with a 403).
+        """
         async for message in pubsub.listen():
             if message["type"] != "message":
                 continue
             event = json.loads(message["data"])
             if event["type"] == "unmatch":
+                try:
+                    await websocket.send_json({"type": "unmatch"})
+                except Exception:
+                    pass  # the client is already gone: nothing to tell
                 return
             await websocket.send_json(event["data"])
 
@@ -293,6 +304,8 @@ CONVERSATIONS_SQL = """
     SELECT u.id, u.first_name, u.is_online, u.last_seen,
            (SELECT position FROM photos
             WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+           (SELECT id FROM photos
+            WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id,
            lm.id AS message_id, lm.sender_id, lm.content, lm.created_at,
            unread.count AS unread_count
     FROM likes mine
@@ -359,8 +372,9 @@ async def get_conversations(request: Request, redis: Redis = Depends(get_redis),
                 "first_name": row["first_name"],
                 "is_online": row["is_online"],
                 "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
+                # ?v= changes when another photo takes the slot, so browsers never reuse the old one
                 "photo": (
-                    f"/users/{row['id']}/photos/{row['photo_position']}"
+                    f"/users/{row['id']}/photos/{row['photo_position']}?v={row['photo_id']}"
                     if row["photo_position"] is not None else None
                 ),
             },

@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import type { Profile } from "@/context/ProfileContext";
 import { useProfileDetails } from "@/hooks/useProfileDetails";
 import { Button, fieldClasses } from "@/components/FormControls";
+import { interestedInLabel, interestedInOptions } from "@/lib/orientation";
 
 const GENDERS = ["male", "female", "other"];
-const ORIENTATIONS = ["hetero", "homo", "bi"];
 
 function capitalize(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1);
@@ -138,7 +138,7 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
             />
             <Row
                 label="Interested in"
-                value={profile.orientation ? capitalize(profile.orientation) : null}
+                value={profile.orientation ? interestedInLabel(profile.orientation, profile.gender) : null}
                 input={
                     isEditing && (
                         <select
@@ -149,9 +149,10 @@ export default function ProfileDetails({ profile }: { profile: Profile }) {
                             <option value="" disabled>
                                 Choose one
                             </option>
-                            {ORIENTATIONS.map((o) => (
-                                <option key={o} value={o}>
-                                    {capitalize(o)}
+                            {/* Follows the gender being edited, so changing it shows what the saved choice now means */}
+                            {interestedInOptions(fields.gender || profile.gender).map(({ value, label }) => (
+                                <option key={value} value={value}>
+                                    {label}
                                 </option>
                             ))}
                         </select>

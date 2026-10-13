@@ -1,7 +1,9 @@
 import os
+import time
 from datetime import date
-from fastapi import APIRouter, Depends, Response, Request, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Response, Request, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from psycopg import AsyncConnection
 from redis import Redis
 import asyncio
@@ -11,18 +13,27 @@ from app.db.dependencies import get_db
 from app.cache.dependencies import get_redis
 from app.security.session import get_current_user_id
 from app.security.token import generate_verification_token, send_verification_email
-from app.security.rate_limiter.rate_limit import rate_limit
+from app.security.passwords import hash_password, verify_password, is_password_valid
+from app.security.rate_limiter.rate_limit import rate_limit, consume
 from app.utils import require_json, is_valid_image, process_photo
 from app.validation import (
     clean_str, clean_email, clean_username, clean_choice, clean_int, clean_float,
-    GENDERS, ORIENTATIONS, MAX_NAME, MAX_BIO, MAX_CITY, MAX_TAG, MAX_SEARCH,
+    GENDERS, ORIENTATIONS, MAX_NAME, MAX_BIO, MAX_CITY, MAX_TAG, MAX_SEARCH, MAX_PASSWORD,
 )
 from app.usernames import is_username_conflict
+from app.geoip import locate, client_ip
 from app.log import get_logger
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+# Confirmation mails go to an address the user typed and need not own, so sending them
+# is capped per account: by PUT /profile/me (a new address) and by the resend route,
+# which draw from the same bucket. Without a shared cap, repeating the PUT would
+# bypass the resend limit and turn the app into a mail cannon.
+EMAIL_MAIL_SCOPE = "email-mail"
+EMAIL_MAIL_PER_HOUR = 5
 
 
 # The visitors and likes lists show at most this many people, newest first.
@@ -43,8 +54,10 @@ NOT_A_BLOCKED_VISITOR = """
 async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
     """Return the current user's own profile.
 
-    Includes private fields (email, coordinates, ``profile_complete``,
-    ``created_at``) as well as the tag names and the photos.
+    Includes private fields (email, ``pending_email`` the new address still
+    waiting for its confirmation link or None, ``auth_provider`` ``email`` or
+    ``google``, coordinates, ``profile_complete``, ``created_at``) as well as
+    the tag names and the photos.
 
     Args:
         request: Incoming request, carrying the ``session`` cookie.
@@ -62,7 +75,7 @@ async def get_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
 
     cursor = await conn.execute("""
-        SELECT id, email, username, first_name, last_name,
+        SELECT id, email, pending_email, auth_provider, username, first_name, last_name,
         gender, orientation, bio, birth_date, fame_rating,
         latitude, longitude, city, is_online, last_seen,
         profile_complete, created_at FROM users WHERE id = %s
@@ -103,8 +116,14 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
     contain control characters (newlines are allowed in ``bio``). The
     profile becomes complete once
     gender, birth date and a location (city or coordinates) are all set.
-    Changing the email marks the account unverified and sends a new
-    verification email to the new address. The email is sent after the
+    Changing the email does **not** change it yet: the new address is stored
+    as ``pending_email`` and a confirmation link is mailed to it; ``email``
+    (and so login and password recovery) stays as it was until that link is
+    clicked (``GET /auth/verify``), so a typo cannot lock the user out. Typing
+    the current address again cancels a pending change. Accounts created with
+    Google sign-in cannot change their email. A new address costs one of the
+    5 confirmation mails per hour an account may trigger (shared with
+    ``POST /profile/pending-email/resend``). The email is sent after the
     commit: if it cannot be sent the update still stands and the response
     message says so (still a 200).
 
@@ -114,15 +133,19 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         conn: Database connection (injected dependency).
 
     Returns:
-        ``{"message": "profile updated"}``, or, when the email changed but
-        the verification mail could not be sent, ``{"message": "profile
-        updated, but the verification email could not be sent"}``.
+        ``{"message": "profile updated"}``, or, when the new address was
+        stored but the confirmation mail could not be sent, ``{"message":
+        "profile updated, but the verification email could not be sent"}``
+        (``POST /profile/pending-email/resend`` tries again).
 
     Raises:
         HTTPException: 400 if no field is given, a value is invalid or too
             long, or the body is not a JSON object; 401 if not
-            authenticated; 409 if the email or the username is already
-            taken; 413 if the body is too large; 500 if the update fails.
+            authenticated; 403 if the account was created with Google and
+            an email is given; 409 if the email or the username is already
+            taken; 413 if the body is too large; 429 if a new email is given
+            and the account already triggered 5 confirmation mails this hour;
+            500 if the update fails.
     """
     body = await require_json(request)
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
@@ -163,18 +186,46 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             raise HTTPException(status_code=400, detail="Minimum age is 16 years old")
         updates["birth_date"] = birth_date
 
-    email_changed = "email" in updates
+    # The email is not an ordinary column: it becomes `pending_email` below.
+    new_email = updates.pop("email", None)
+    email_changed = False
 
     if tags is not None:
         tags = await _validate_tags(conn, tags)
 
     try:
-        if updates:
+        if updates or new_email is not None:
             cursor = await conn.execute(
-                "SELECT gender, birth_date, city, latitude, longitude FROM users WHERE id = %s",
+                "SELECT gender, birth_date, city, latitude, longitude, email, auth_provider FROM users WHERE id = %s",
                 (user_id,)
             )
             current = await cursor.fetchone()
+
+            if new_email is not None:
+                if current["auth_provider"] != "email":
+                    raise HTTPException(status_code=403, detail="Accounts created with Google sign-in cannot change their email")
+                if new_email.lower() == current["email"].lower():
+                    updates["pending_email"] = None  # the current address again: cancels a pending change
+                else:
+                    cursor = await conn.execute(
+                        "SELECT 1 FROM users WHERE email = %s AND id <> %s", (new_email, user_id)
+                    )
+                    if await cursor.fetchone() is not None:
+                        raise HTTPException(status_code=409, detail="Email already taken")
+                    allowed, retry_after = await consume(
+                        request.app.state.rate_limit_script,
+                        f"rl:{EMAIL_MAIL_SCOPE}:account:{user_id}",
+                        EMAIL_MAIL_PER_HOUR,
+                        3600,
+                    )
+                    if not allowed:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Too many email changes, try again later",
+                            headers={"Retry-After": str(retry_after)},
+                        )
+                    updates["pending_email"] = new_email
+                    email_changed = True
 
             effective_gender = updates.get("gender", current["gender"])
             effective_birth_date = updates.get("birth_date", current["birth_date"])
@@ -186,8 +237,6 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
             if effective_gender and effective_birth_date and has_location:
                 updates["profile_complete"] = True
 
-            if email_changed:
-                updates["verified"] = False
             set_clause = ", ".join(f"{k} = %s" for k in updates.keys())
             values = list(updates.values())
             await conn.execute(
@@ -208,16 +257,132 @@ async def put_profile(request: Request, redis: Redis = Depends(get_redis), conn:
         raise HTTPException(status_code=500, detail="failed to update profile")
 
     if email_changed:
-        token = generate_verification_token(str(user_id), updates["email"])
+        token = generate_verification_token(str(user_id), new_email)
         try:
-            await asyncio.to_thread(send_verification_email, updates["email"], token)
+            await asyncio.to_thread(send_verification_email, new_email, token)
         except Exception:
-            # The email change is already committed and `verified` is reset:
-            # a 500 here would hide that from the client, so report the
-            # partial success instead (_send_email already logged the cause).
+            # The pending address is already committed: a 500 here would hide
+            # that from the client, so report the partial success instead
+            # (_send_email already logged the cause).
             return {"message": "profile updated, but the verification email could not be sent"}
 
     return {"message": "profile updated"}
+
+
+@router.put("/profile/password", dependencies=[Depends(rate_limit("change-password", limit=10, seconds=3600, by="account"))])
+async def change_password(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Change the current user's password, knowing the current one.
+
+    Expects a JSON body ``{"current_password": str, "new_password": str}``.
+    The new password follows the registration rules. On success every other
+    session of the user is closed (like after a reset), the current one stays.
+    A wrong current password is a 400, not a 401: the session itself is fine.
+
+    Args:
+        request: Incoming request with the ``session`` cookie and JSON body.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "password changed"}``.
+
+    Raises:
+        HTTPException: 400 if a field is missing or invalid, the current
+            password is wrong, or the new one is too weak, too common or the
+            same as the current one; 401 if not authenticated; 429 over 10
+            attempts per hour.
+    """
+    body = await require_json(request)
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    current_password = clean_str(body.get("current_password"), "current_password", MAX_PASSWORD, strip=False)
+    new_password = clean_str(body.get("new_password"), "new_password", MAX_PASSWORD, strip=False)
+    if not is_password_valid(new_password):
+        raise HTTPException(status_code=400, detail="Password too weak or too common")
+    if new_password == current_password:
+        raise HTTPException(status_code=400, detail="The new password must be different")
+
+    cursor = await conn.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
+    row = await cursor.fetchone()
+    if row is None or not await verify_password(row["password_hash"], current_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    await conn.execute(
+        "UPDATE users SET password_hash = %s WHERE id = %s", (await hash_password(new_password), user_id)
+    )
+    await conn.commit()
+
+    current_session = request.cookies.get("session", "").split("$")[0]
+    try:
+        await redis.zremrangebyscore(f"user_sessions:{user_id}", "-inf", time.time())
+        for session_id in await redis.zrange(f"user_sessions:{user_id}", 0, -1):
+            if session_id != current_session:
+                await redis.delete("session:" + session_id)
+                await redis.zrem(f"user_sessions:{user_id}", session_id)
+    except Exception:
+        # Same as reset_password: the change is committed, closing the other
+        # sessions is best-effort.
+        logger.exception("Failed to close the other sessions of user %s after a password change", user_id)
+    return {"message": "password changed"}
+
+
+@router.delete("/profile/pending-email")
+async def cancel_pending_email(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Drop the email change that is waiting for its confirmation link.
+
+    The account keeps its current ``email``; the link already mailed stops
+    working (it only confirms the address that is pending). Calling it with
+    nothing pending is harmless.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "pending email cancelled"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    await conn.execute("UPDATE users SET pending_email = NULL WHERE id = %s", (user_id,))
+    await conn.commit()
+    return {"message": "pending email cancelled"}
+
+
+@router.post("/profile/pending-email/resend", dependencies=[Depends(rate_limit(EMAIL_MAIL_SCOPE, limit=EMAIL_MAIL_PER_HOUR, seconds=3600, by="account"))])
+async def resend_pending_email(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Mail the confirmation link of the pending email again.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "confirmation email sent"}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 404 if no email change is
+            pending; 429 over 5 confirmation mails per hour (shared with a
+            new address in ``PUT /profile/me``); 503 if the mail cannot be
+            sent.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    cursor = await conn.execute("SELECT pending_email FROM users WHERE id = %s", (user_id,))
+    row = await cursor.fetchone()
+    if row is None or row["pending_email"] is None:
+        raise HTTPException(status_code=404, detail="no email change is pending")
+
+    token = generate_verification_token(str(user_id), row["pending_email"])
+    try:
+        await asyncio.to_thread(send_verification_email, row["pending_email"], token)
+    except Exception:
+        raise HTTPException(status_code=503, detail="could not send the email, try again later")
+    return {"message": "confirmation email sent"}
 
 
 @router.put("/profile/location")
@@ -272,6 +437,48 @@ async def update_location(request: Request, redis: Redis = Depends(get_redis), c
         raise HTTPException(status_code=500, detail="Failed to update location")
 
     return {"message": "Location updated"}
+
+
+@router.post("/profile/location/approximate", dependencies=[Depends(rate_limit("locate-ip", limit=30, seconds=3600, by="account"))])
+async def approximate_location(request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Locate the current user from their IP address, without asking them.
+
+    The frontend calls this as soon as someone without coordinates starts
+    setting up their profile, so they are located even if they never share
+    their GPS position. The position found is stored only while the user has
+    none: it never replaces one they gave (GPS or a city they picked). The
+    city is filled the same way, only when empty.
+
+    Not finding anything is a normal outcome (the services are down, the
+    machine is offline): the answer is then ``{"located": false}``, still a 200.
+
+    Args:
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"located": true, "latitude": float, "longitude": float, "city":
+        str | None, "saved": bool}`` (``saved`` is False when the user already
+        had a position), or ``{"located": false}``.
+
+    Raises:
+        HTTPException: 401 if not authenticated; 429 over 30 lookups per hour.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    found = await locate(client_ip(request))
+    if found is None:
+        return {"located": False}
+
+    cursor = await conn.execute("""
+        UPDATE users SET latitude = %s, longitude = %s, city = COALESCE(city, %s)
+        WHERE id = %s AND (latitude IS NULL OR longitude IS NULL)
+        RETURNING id
+    """, (found["latitude"], found["longitude"], found["city"], user_id))
+    saved = await cursor.fetchone() is not None
+    await conn.commit()
+    return {"located": True, **found, "saved": saved}
 
 
 @router.get("/tags")
@@ -440,8 +647,8 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
     """List the visits received on the current user's profile.
 
     Newest first, at most ``RECEIVED_LIST_LIMIT``, and without visitors blocked
-    in either direction. A visit is only refreshed after 15 days, so
-    ``created_at`` is the first visit (or the first one after 15 days).
+    in either direction. One row per visitor: ``created_at`` is their latest
+    visit.
 
     Args:
         request: Incoming request, carrying the ``session`` cookie.
@@ -450,9 +657,10 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     Returns:
         A list of dicts with ``id``, ``visitor_id``, ``created_at``, the
-        visitor's ``first_name`` and ``photo_position`` (slot of their profile
+        visitor's ``first_name``, ``photo_position`` (slot of their profile
         photo, ``None`` without one; fetch it from
-        ``/users/{visitor_id}/photos/{position}``).
+        ``/users/{visitor_id}/photos/{position}``) and ``photo_id`` (that
+        photo's id, to add as ``?v=`` against stale browser caches).
 
     Raises:
         HTTPException: 401 if not authenticated.
@@ -461,7 +669,8 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     cursor = await conn.execute(f"""
         SELECT v.id, v.visitor_id, v.created_at, u.first_name,
-            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
+            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            (SELECT id FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id
         FROM visits v
         JOIN users u ON u.id = v.visitor_id
         WHERE v.visited_id = %s
@@ -487,8 +696,10 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
     Returns:
         A list of dicts with ``id``, ``liker_id``, ``created_at``, the liker's
-        ``first_name`` and ``photo_position`` (slot of their profile photo,
-        ``None`` without one; fetch it from ``/users/{liker_id}/photos/{position}``).
+        ``first_name``, ``photo_position`` (slot of their profile photo,
+        ``None`` without one; fetch it from ``/users/{liker_id}/photos/{position}``)
+        and ``photo_id`` (that photo's id, to add as ``?v=`` against stale
+        browser caches).
 
     Raises:
         HTTPException: 401 if not authenticated.
@@ -497,7 +708,8 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
     cursor = await conn.execute(f"""
         SELECT l.id, l.liker_id, l.created_at, u.first_name,
-            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
+            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            (SELECT id FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id
         FROM likes l
         JOIN users u ON u.id = l.liker_id
         WHERE l.liked_id = %s
@@ -592,18 +804,22 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
         ``{"message": "<n> photo(s) uploaded"}``.
 
     Raises:
-        HTTPException: 400 if no photo is sent, the 5-photo limit would be
-            exceeded, or a file is too large or not a valid image; 401 if
-            not authenticated; 500 if the upload fails. For errors raised
-            partway through the batch (400 or 500), ``detail`` is
-            ``{"error": <message>, "uploaded": [<indices>]}``.
+        HTTPException: 400 if no photo is sent, a ``photos`` field is not a
+            file, the 5-photo limit would be exceeded, or a file is too large
+            or not a valid image; 401 if not authenticated; 500 if the upload
+            fails. Errors raised partway through the batch (400 or 500) are
+            answered as ``{"detail": <message>, "uploaded": [<indices>]}``:
+            ``detail`` stays a string, like every other error.
     """
     user_id = await get_current_user_id(request.cookies.get("session"), redis)
     form = await request.form()
 
-    photos: list[UploadFile] = form.getlist("photos")
+    photos = form.getlist("photos")
     if not photos:
         raise HTTPException(status_code=400, detail="photos missing")
+    # A plain text field named "photos" is not a file: refused before anything is read.
+    if not all(isinstance(photo, StarletteUploadFile) for photo in photos):
+        raise HTTPException(status_code=400, detail="photos must be files")
 
     cursor = await conn.execute(
         "SELECT COUNT(*) as count FROM photos WHERE user_id = %s", (user_id,)
@@ -641,10 +857,10 @@ async def upload_photos(request: Request, redis: Redis = Depends(get_redis), con
             await conn.commit()
             success.add(i)
     except HTTPException as e:
-        raise HTTPException(status_code=e.status_code, detail={"error": e.detail, "uploaded": sorted(success)})
+        return JSONResponse(status_code=e.status_code, content={"detail": e.detail, "uploaded": sorted(success)})
     except Exception:
         logger.exception("Photo upload failed for user %s", user_id)
-        raise HTTPException(status_code=500, detail={"error": "upload failed", "uploaded": sorted(success)})
+        return JSONResponse(status_code=500, content={"detail": "upload failed", "uploaded": sorted(success)})
 
     return {"message": f"{len(photos)} photo(s) uploaded"}
 
@@ -802,3 +1018,54 @@ async def move_photo(position: int, request: Request, redis: Redis = Depends(get
         raise HTTPException(status_code=500, detail="move failed")
 
     return {"message": f"photo moved from position {position} to {target}"}
+
+
+@router.put("/profile/photos/{position}/profile")
+async def set_profile_photo(position: int, request: Request, redis: Redis = Depends(get_redis), conn: AsyncConnection = Depends(get_db)):
+    """Make one of the current user's photos their profile picture.
+
+    The chosen photo swaps places with the one in slot 1 and becomes the only
+    profile photo, so the profile picture is always the first photo wherever
+    photos are listed by position.
+
+    Args:
+        position: Current position of the photo, from 1 to 5.
+        request: Incoming request, carrying the ``session`` cookie.
+        redis: Redis client (injected dependency).
+        conn: Database connection (injected dependency).
+
+    Returns:
+        ``{"message": "profile photo updated"}``.
+
+    Raises:
+        HTTPException: 400 if the position is out of range; 401 if not
+            authenticated; 404 if there is no photo at that position; 500 if
+            the update fails.
+    """
+    user_id = await get_current_user_id(request.cookies.get("session"), redis)
+
+    if position < 1 or position > 5:
+        raise HTTPException(status_code=400, detail="invalid position (1-5)")
+
+    cursor = await conn.execute(
+        "SELECT 1 FROM photos WHERE user_id = %s AND position = %s", (user_id, position)
+    )
+    if await cursor.fetchone() is None:
+        raise HTTPException(status_code=404, detail="no photo at this position")
+
+    try:
+        if position != 1:
+            # Same swap as move_photo; the (user_id, position) constraint is deferred.
+            await conn.execute("""
+                UPDATE photos SET position = CASE WHEN position = %s THEN 1 ELSE %s END
+                WHERE user_id = %s AND position IN (%s, 1)
+            """, (position, position, user_id, position))
+        await conn.execute(
+            "UPDATE photos SET is_profile = (position = 1) WHERE user_id = %s", (user_id,)
+        )
+        await conn.commit()
+    except Exception:
+        logger.exception("Setting profile photo failed for user %s position %s", user_id, position)
+        raise HTTPException(status_code=500, detail="could not set the profile photo")
+
+    return {"message": "profile photo updated"}

@@ -43,8 +43,9 @@ export function useProfileTags(tags: string[]) {
                 const data = await res.json();
                 if (Array.isArray(data.tags)) setAvailableTags(data.tags);
             })
+            .catch(() => showError("Could not load interests. Please try again later."))
             .finally(() => setIsLoadingTags(false));
-    }, []);
+    }, [showError]);
 
     const addableTags = availableTags.filter((tag) => !tags.includes(tag));
 

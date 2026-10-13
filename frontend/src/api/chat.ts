@@ -1,3 +1,5 @@
+import { sharedGet } from "@/lib/sharedGet";
+
 export const MAX_MESSAGE_LENGTH = 1000;
 
 export interface ChatUser {
@@ -26,11 +28,9 @@ export interface MessagePage {
     has_more: boolean;
 }
 
+/** Shared while in flight (see lib/sharedGet): the chat context and the chat page ask together. */
 export async function getConversations(): Promise<Response> {
-    const response = await fetch('/api/chat/conversations', {
-        credentials: 'include',
-    })
-    return response
+    return sharedGet('/api/chat/conversations')
 }
 
 export async function getMessages(
@@ -42,10 +42,7 @@ export async function getMessages(
     if (limit !== undefined) params.set('limit', String(limit));
     const query = params.size > 0 ? `?${params.toString()}` : '';
 
-    const response = await fetch(`/api/chat/${targetId}/messages${query}`, {
-        credentials: 'include',
-    })
-    return response
+    return sharedGet(`/api/chat/${targetId}/messages${query}`)
 }
 
 export async function markSeen(targetId: number): Promise<Response> {

@@ -11,9 +11,11 @@ interface LocationStepProps {
     onBack: () => void;
     onNext: () => void;
     isLoading: boolean;
+    /** Changes when a position is found from the connection: the field starts over to show it. */
+    fieldKey?: number;
 }
 
-export default function LocationStep({ city, latitude, longitude, onUseLocation, onSelectLocation, onClearLocation, onBack, onNext, isLoading }: LocationStepProps) {
+export default function LocationStep({ city, latitude, longitude, onUseLocation, onSelectLocation, onClearLocation, onBack, onNext, isLoading, fieldKey }: LocationStepProps) {
     return (
         <StepPanel
             title="Where are you?"
@@ -25,6 +27,7 @@ export default function LocationStep({ city, latitude, longitude, onUseLocation,
             isLoading={isLoading}
         >
             <LocationSearchField
+                key={fieldKey}
                 city={city}
                 onUseLocation={onUseLocation}
                 onSelectLocation={onSelectLocation}

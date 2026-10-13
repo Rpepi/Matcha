@@ -14,11 +14,14 @@ import RegisterPage from "./pages/RegisterPage";
 import CompleteProfilePage from "./pages/CompleteProfilePage";
 import UserPage from "./pages/UserPage";
 import VerifyPage from "./pages/VerifyPage"
+import ForgotPasswordPage from "./pages/ForgotPasswordPage"
+import ResetPasswordPage from "./pages/ResetPasswordPage"
 import ProtectedRoute from "./components/ProtectedRoute";
 import GuestRoute from "./components/GuestRoute";
 import OnboardingRoute from "./components/OnboardingRoute";
 import { NotificationProvider } from "./context/NotificationContext";
 import NotificationPage from "./pages/NotificationPage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 function App() {
     return (
@@ -32,14 +35,20 @@ function App() {
                                     <Route path="/browse" element={<BrowsePage />} />
                                     <Route path="/users/:id" element={<UserPage />} />
                                 </Route>
-                                <Route path="/chat/:id?" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/visitors" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/likes" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+                                <Route path="/chat/:id" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                                 <Route path="/notification" element={<ProtectedRoute><NotificationPage /></ProtectedRoute>} />
                                 <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
                                 <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreviewPage /></ProtectedRoute>} />
                                 <Route path="/complete-profile" element={<OnboardingRoute><CompleteProfilePage /></OnboardingRoute>} />
                                 <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
                                 <Route path="/verify" element={<VerifyPage />} />
+                                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                                <Route path="/reset-password" element={<ResetPasswordPage />} />
                                 <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+                                <Route path="*" element={<NotFoundPage />} />
                             </Routes>
                         </NotificationProvider>
                     </ChatProvider>

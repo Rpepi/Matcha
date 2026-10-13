@@ -3,10 +3,9 @@ import { Link, NavLink } from "react-router-dom";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Search, Send, UserRound, LogOut, Bell, type LucideIcon } from "lucide-react";
 import logo from "../assets/logo.png";
-import { logout } from "../api/auth";
-import { useProfileContext } from "../context/ProfileContext";
 import { useChatContext } from "../context/ChatContext";
 import { useNotificationContext } from "@/context/NotificationContext";
+import { useLogout } from "@/hooks/useLogout";
 
 const NAV_ITEMS: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/browse", icon: Search, label: "Browse" },
@@ -33,14 +32,9 @@ function IconTooltip({ label, children }: { label: string; children: ReactElemen
 
 
 export default function Sidebar() {
-    const { refetch } = useProfileContext();
     const { unreadTotal } = useChatContext();
     const {unreadCount} = useNotificationContext();
-
-    async function handleLogout() {
-        await logout();
-        await refetch();
-    }
+    const handleLogout = useLogout();
 
     return (
         <aside className="fixed left-0 right-0 bottom-0 z-30 flex items-center justify-around border-t-3 border-grey/15 bg-paper py-3 md:top-0 md:bottom-0 md:left-0 md:right-auto md:grid md:w-18 md:grid-rows-[auto_1fr_auto] md:items-center md:justify-items-center md:border-t-0 md:border-3 md:py-6">
@@ -82,6 +76,7 @@ export default function Sidebar() {
                 })}
             </nav>
 
+            {/* Desktop only: on phones, log out is at the bottom of the profile page */}
             <div className="hidden md:block">
                 <IconTooltip label="Log out">
                     <button

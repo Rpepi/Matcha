@@ -1,14 +1,29 @@
 import { Link } from "react-router-dom";
-import { X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import logo from "../assets/logo.png";
 import { Button } from "./FormControls";
+import { useLogout } from "@/hooks/useLogout";
 
 interface HeaderProps {
-    variant: "landing" | "close";
-    hideClose?: boolean;
+    /** `logout`: a signed-in page outside the app layout (profile setup), where log out replaces the close cross. */
+    variant: "landing" | "close" | "logout";
 }
 
-export default function Header({ variant, hideClose }: HeaderProps) {
+function LogoutButton() {
+    const handleLogout = useLogout();
+    return (
+        <button
+            type="button"
+            onClick={handleLogout}
+            className="flex cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-ink/60 transition hover:bg-grey/10 hover:text-ink"
+        >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Log out
+        </button>
+    );
+}
+
+export default function Header({ variant }: HeaderProps) {
     const isLanding = variant === "landing";
 
     return (
@@ -35,7 +50,9 @@ export default function Header({ variant, hideClose }: HeaderProps) {
                         </Button>
                     </Link>
                 </nav>
-            ) : !hideClose ? (
+            ) : variant === "logout" ? (
+                <LogoutButton />
+            ) : (
                 <Link
                     to="/"
                     aria-label="Back to home"
@@ -43,7 +60,7 @@ export default function Header({ variant, hideClose }: HeaderProps) {
                 >
                     <X className="h-6 w-6" />
                 </Link>
-            ) : null}
+            )}
         </header>
     );
 }

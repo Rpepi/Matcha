@@ -32,15 +32,19 @@ export default function LoginPage() {
 
     const HandleSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault()
-        const response = await login(username.trim(), password)
-        if (response.ok) {
-            const data = await response.json();
-            await refetch();
-            navigate(data.profile_complete ? '/browse' : '/complete-profile');
-        }
-        else {
-            const data = await response.json().catch(() => null);
-            showError(data?.detail ?? 'Invalid username or password')
+        try {
+            const response = await login(username.trim(), password)
+            if (response.ok) {
+                const data = await response.json();
+                await refetch();
+                navigate(data.profile_complete ? '/browse' : '/complete-profile');
+            }
+            else {
+                const data = await response.json().catch(() => null);
+                showError(data?.detail ?? 'Invalid username or password')
+            }
+        } catch {
+            showError('Could not log in. Please check your connection and try again.');
         }
     }
 
@@ -81,9 +85,13 @@ export default function LoginPage() {
                 <Button disabled={!loginPossible} type="submit" className="mt-2">
                     Log in
                 </Button>
+
+                <Link to="/forgot-password" className="text-center text-sm font-medium text-matcha hover:underline">
+                    Forgot password?
+                </Link>
             </form>
 
-            <p className="mt-8 text-center text-sm text-ink/60">
+            <p className="mt-3 text-center text-sm text-ink/60">
                 Not a member?{" "}
                 <Link to="/register" className="font-medium text-matcha hover:underline">
                     Register now

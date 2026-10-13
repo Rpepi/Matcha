@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from "react";
-import { Trash2, ImageIcon } from "lucide-react";
+import { Trash2, ImageIcon, Star } from "lucide-react";
 import { useToast } from "@/context/ToastContext";
 
 const SLOT_COUNT = 5;
@@ -8,6 +8,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 export interface PhotoGridPhoto {
     position: number;
     url: string | null;
+    /** The profile picture: badged, and offered no "make profile picture" button. */
+    isProfile?: boolean;
 }
 
 interface PhotoGridProps {
@@ -15,9 +17,11 @@ interface PhotoGridProps {
     isUploading?: boolean;
     onUpload?: (file: File) => void;
     onDelete?: (position: number) => void;
+    /** When given, every other photo can be made the profile picture. */
+    onSetProfile?: (position: number) => void;
 }
 
-export default function PhotoGrid({ photos, isUploading = false, onUpload, onDelete }: PhotoGridProps) {
+export default function PhotoGrid({ photos, isUploading = false, onUpload, onDelete, onSetProfile }: PhotoGridProps) {
     const inputRef = useRef<HTMLInputElement>(null);
     const { showError } = useToast();
     const editable = Boolean(onUpload);
@@ -59,6 +63,22 @@ export default function PhotoGrid({ photos, isUploading = false, onUpload, onDel
                                 <div className="flex h-full w-full items-center justify-center bg-grey/10 text-grey/40">
                                     <ImageIcon className="h-6 w-6" />
                                 </div>
+                            )}
+                            {photo.isProfile && (
+                                <span className="absolute bottom-1.5 left-1.5 rounded-full bg-ink/70 px-2 py-0.5 text-[11px] font-medium text-paper">
+                                    Profile
+                                </span>
+                            )}
+                            {onSetProfile && !photo.isProfile && (
+                                <button
+                                    type="button"
+                                    onClick={() => onSetProfile(photo.position)}
+                                    aria-label="Make this my profile picture"
+                                    title="Make this my profile picture"
+                                    className="absolute top-1.5 left-1.5 rounded-full bg-ink/60 p-1.5 text-paper opacity-0 transition group-hover:opacity-100 hover:bg-ink/80 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                                >
+                                    <Star className="h-4 w-4" />
+                                </button>
                             )}
                             {onDelete && (
                                 <button

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { Profile } from "@/context/ProfileContext";
 import { useProfileContext } from "@/context/ProfileContext";
 import { useToast } from "@/context/ToastContext";
-import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi } from "@/api/photos";
+import { uploadPhoto as uploadPhotoApi, deletePhoto as deletePhotoApi, movePhoto as movePhotoApi, setProfilePhoto } from "@/api/photos";
 
 export function useProfilePhotos(photos: Profile["photos"]) {
     const { refetch } = useProfileContext();
@@ -13,6 +13,7 @@ export function useProfilePhotos(photos: Profile["photos"]) {
         .map((photo) => ({
             position: photo.position,
             url: `/api/profile/photos/${photo.position}?v=${encodeURIComponent(photo.path)}`,
+            isProfile: photo.is_profile,
         }))
         .sort((a, b) => a.position - b.position);
 
@@ -64,5 +65,22 @@ export function useProfilePhotos(photos: Profile["photos"]) {
         [photos, refetch, showError],
     );
 
-    return { gridPhotos, isUploading, handleUpload, handleDelete };
+    const handleSetProfile = useCallback(
+        async (position: number) => {
+            try {
+                const response = await setProfilePhoto(position);
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null);
+                    showError(data?.detail ?? "Could not change your profile picture. Please try again.");
+                    return;
+                }
+                await refetch();
+            } catch {
+                showError("Could not change your profile picture. Please check your connection and try again.");
+            }
+        },
+        [refetch, showError],
+    );
+
+    return { gridPhotos, isUploading, handleUpload, handleDelete, handleSetProfile };
 }

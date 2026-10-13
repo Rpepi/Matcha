@@ -33,3 +33,23 @@ export async function register(
     })
     return response
 }
+
+export async function forgotPassword(email: string): Promise<Response> {
+    const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: {'Content-Type' : 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ email }),
+    })
+    return response
+}
+
+export async function resetPassword(token: string, new_password: string): Promise<Response> {
+    const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: {'Content-Type' : 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ token, new_password }),
+    })
+    return response
+}

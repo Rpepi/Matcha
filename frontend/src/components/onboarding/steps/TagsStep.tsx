@@ -23,6 +23,7 @@ export default function TagsStep({ tags, setTags, onBack, onNext }: TagsStepProp
                 const data = await res.json();
                 if (Array.isArray(data.tags)) setAvailableTags(data.tags);
             })
+            .catch(() => {})
             .finally(() => setIsLoadingTags(false));
     }, []);
 
@@ -58,7 +59,7 @@ export default function TagsStep({ tags, setTags, onBack, onNext }: TagsStepProp
                             type="button"
                             disabled={isDisabled}
                             onClick={() => toggleTag(tag)}
-                            className={`rounded-full border-3 px-3.5 py-1.5 text-sm font-medium transition ${
+                            className={`cursor-pointer rounded-full border-3 px-3.5 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed ${
                                 isSelected
                                     ? "border-matcha-dark bg-matcha-dark text-matcha"
                                     : isDisabled

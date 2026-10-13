@@ -23,6 +23,8 @@ export interface UserProfileDetail {
     /** This user likes the current user (and the current user may not have liked them back yet). */
     likes_me: boolean;
     is_match: boolean;
+    /** From the current user; null when either has no position. */
+    distance_km: number | null;
 }
 
 export async function getUserProfile(id: number): Promise<Response> {

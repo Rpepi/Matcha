@@ -1,17 +1,20 @@
 import StepPanel from "../StepPanel";
 import { SelectField } from "../../FormControls";
+import { interestedInOptions } from "../../../lib/orientation";
 
 interface OrientationStepProps {
+    // Picked on the previous step: the options read differently for each gender
+    gender: string;
     orientation: string;
     setOrientation: (value: string) => void;
     onBack: () => void;
     onNext: () => void;
 }
 
-export default function OrientationStep({ orientation, setOrientation, onBack, onNext }: OrientationStepProps) {
+export default function OrientationStep({ gender, orientation, setOrientation, onBack, onNext }: OrientationStepProps) {
     return (
         <StepPanel
-            title="Who are you interested in?"
+            title="Who would you like to meet?"
             nextDisabled={!orientation}
             onBack={onBack}
             onNext={onNext}
@@ -22,9 +25,9 @@ export default function OrientationStep({ orientation, setOrientation, onBack, o
                 onChange={(e) => setOrientation(e.target.value)}
             >
                 <option value="" disabled>Choose one</option>
-                <option value="hetero">Hetero</option>
-                <option value="homo">Homo</option>
-                <option value="bi">Bi</option>
+                {interestedInOptions(gender).map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
+                ))}
             </SelectField>
         </StepPanel>
     );

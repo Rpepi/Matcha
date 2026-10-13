@@ -35,6 +35,7 @@ export default function CompleteProfilePage() {
         deletePhoto,
         error,
         isLoading,
+        approximateVersion,
         goNext,
         goBack,
         HandleUseLocation,
@@ -59,7 +60,7 @@ export default function CompleteProfilePage() {
     }
 
     return (
-        <AuthLayout hideClose>
+        <AuthLayout showLogout>
 
             <StepProgress step={step} />
 
@@ -75,6 +76,7 @@ export default function CompleteProfilePage() {
             {step === 1 && (
                 <OrientationStep
                     key={step}
+                    gender={gender}
                     orientation={orientation}
                     setOrientation={setOrientation}
                     onBack={goBack}
@@ -136,6 +138,7 @@ export default function CompleteProfilePage() {
                     onBack={goBack}
                     onNext={handleFinish}
                     isLoading={isLoading}
+                    fieldKey={approximateVersion}
                 />
             )}
         </AuthLayout>
