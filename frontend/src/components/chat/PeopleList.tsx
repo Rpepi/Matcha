@@ -9,6 +9,7 @@ interface ProfileEntry {
     first_name: string;
     created_at: string;
     photo_position: number | null;
+    photo_id: number | null;
 }
 
 interface PeopleListProps<T extends ProfileEntry> {
@@ -88,7 +89,7 @@ export default function PeopleList<T extends ProfileEntry>({
                                         first_name: entry.first_name,
                                         is_online: false,
                                         last_seen: null,
-                                        photo: entry.photo_position !== null ? `/users/${personId}/photos/${entry.photo_position}` : null,
+                                        photo: entry.photo_position !== null ? `/users/${personId}/photos/${entry.photo_position}?v=${entry.photo_id}` : null,
                                     }}
                                     size={52}
                                 />

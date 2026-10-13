@@ -304,6 +304,8 @@ CONVERSATIONS_SQL = """
     SELECT u.id, u.first_name, u.is_online, u.last_seen,
            (SELECT position FROM photos
             WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+           (SELECT id FROM photos
+            WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id,
            lm.id AS message_id, lm.sender_id, lm.content, lm.created_at,
            unread.count AS unread_count
     FROM likes mine
@@ -370,8 +372,9 @@ async def get_conversations(request: Request, redis: Redis = Depends(get_redis),
                 "first_name": row["first_name"],
                 "is_online": row["is_online"],
                 "last_seen": row["last_seen"].isoformat() if row["last_seen"] else None,
+                # ?v= changes when another photo takes the slot, so browsers never reuse the old one
                 "photo": (
-                    f"/users/{row['id']}/photos/{row['photo_position']}"
+                    f"/users/{row['id']}/photos/{row['photo_position']}?v={row['photo_id']}"
                     if row["photo_position"] is not None else None
                 ),
             },

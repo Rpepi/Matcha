@@ -61,6 +61,7 @@ export interface Visit {
     created_at: string;
     first_name: string;
     photo_position: number | null;
+    photo_id: number | null;
 }
 
 export interface Like {
@@ -69,6 +70,7 @@ export interface Like {
     created_at: string;
     first_name: string;
     photo_position: number | null;
+    photo_id: number | null;
 }
 
 export async function getVisits(): Promise<Response> {

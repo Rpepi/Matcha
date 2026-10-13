@@ -657,9 +657,10 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     Returns:
         A list of dicts with ``id``, ``visitor_id``, ``created_at``, the
-        visitor's ``first_name`` and ``photo_position`` (slot of their profile
+        visitor's ``first_name``, ``photo_position`` (slot of their profile
         photo, ``None`` without one; fetch it from
-        ``/users/{visitor_id}/photos/{position}``).
+        ``/users/{visitor_id}/photos/{position}``) and ``photo_id`` (that
+        photo's id, to add as ``?v=`` against stale browser caches).
 
     Raises:
         HTTPException: 401 if not authenticated.
@@ -668,7 +669,8 @@ async def get_my_visits(request: Request, redis: Redis = Depends(get_redis), con
 
     cursor = await conn.execute(f"""
         SELECT v.id, v.visitor_id, v.created_at, u.first_name,
-            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
+            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            (SELECT id FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id
         FROM visits v
         JOIN users u ON u.id = v.visitor_id
         WHERE v.visited_id = %s
@@ -694,8 +696,10 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
     Returns:
         A list of dicts with ``id``, ``liker_id``, ``created_at``, the liker's
-        ``first_name`` and ``photo_position`` (slot of their profile photo,
-        ``None`` without one; fetch it from ``/users/{liker_id}/photos/{position}``).
+        ``first_name``, ``photo_position`` (slot of their profile photo,
+        ``None`` without one; fetch it from ``/users/{liker_id}/photos/{position}``)
+        and ``photo_id`` (that photo's id, to add as ``?v=`` against stale
+        browser caches).
 
     Raises:
         HTTPException: 401 if not authenticated.
@@ -704,7 +708,8 @@ async def get_my_likes(request: Request, redis: Redis = Depends(get_redis), conn
 
     cursor = await conn.execute(f"""
         SELECT l.id, l.liker_id, l.created_at, u.first_name,
-            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position
+            (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            (SELECT id FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id
         FROM likes l
         JOIN users u ON u.id = l.liker_id
         WHERE l.liked_id = %s

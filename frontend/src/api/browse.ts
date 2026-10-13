@@ -17,6 +17,8 @@ export interface BrowseProfile {
     score: number;
     /** Slot (1-5) of the profile photo, for `/users/{id}/photos/{position}`; null when the user has none. */
     photo_position: number | null;
+    /** Id of that photo, added as `?v=` so a newly chosen profile photo in the same slot is not served from cache. */
+    photo_id: number | null;
     is_liked_by_me: boolean;
 }
 

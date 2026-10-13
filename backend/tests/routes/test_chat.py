@@ -538,6 +538,7 @@ def make_conversation_row(user_id=2, message_id=None, sender_id=None, unread=0, 
     return {
         "id": user_id, "first_name": "Bob", "is_online": True, "last_seen": None,
         "photo_position": photo_position,
+        "photo_id": 10 + user_id if photo_position is not None else None,
         "message_id": message_id, "sender_id": sender_id if has_message else None,
         "content": "hi" if has_message else None,
         "created_at": datetime(2026, 10, 3, 10, 12) if has_message else None,
@@ -561,7 +562,7 @@ class TestGetConversations:
         first, second = res.json()
         assert first == {
             "user": {"id": 2, "first_name": "Bob", "is_online": True, "last_seen": None,
-                     "photo": "/users/2/photos/1"},
+                     "photo": "/users/2/photos/1?v=12"},
             "last_message": {"id": 88, "sender_id": 2, "content": "hi",
                              "created_at": "2026-10-03T10:12:00"},
             "unread_count": 2,

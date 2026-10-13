@@ -178,7 +178,9 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
         ``gender``, ``bio``, ``birth_date``, ``fame_rating``, ``city``,
         ``is_online``, ``last_seen``, ``age``, ``distance_km``,
         ``common_tags``, ``score``, ``photo_position`` (slot of the profile
-        photo, None if there is none) and ``is_liked_by_me``.
+        photo, None if there is none), ``photo_id`` (that photo's id, to add
+        as ``?v=`` so a new profile photo in the same slot is not served from
+        the browser cache) and ``is_liked_by_me``.
 
     Raises:
         HTTPException: 400 if a query parameter is not an integer or is out
@@ -304,6 +306,7 @@ async def browse_users(request: Request, redis: Redis = Depends(get_redis), conn
                 - earth_distance(ll_to_earth(u.latitude, u.longitude), ll_to_earth(%s, %s)) / 1000 * 0.1
             )                                                                         AS score,
             (SELECT position FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_position,
+            (SELECT id FROM photos WHERE user_id = u.id AND is_profile = true LIMIT 1) AS photo_id,
             EXISTS (SELECT 1 FROM likes WHERE liker_id = %s AND liked_id = u.id)     AS is_liked_by_me
         FROM users u
         WHERE {where_clause}

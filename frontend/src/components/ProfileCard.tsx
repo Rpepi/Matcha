@@ -15,7 +15,8 @@ export default function ProfileCard({ profile }: { profile: BrowseProfile }) {
     );
 
     const [failedSrc, setFailedSrc] = useState<string | null>(null);
-    const src = profile.photo_position !== null ? `/api/users/${profile.id}/photos/${profile.photo_position}` : null;
+    // ?v= changes when another photo takes the slot, so the browser never shows the previous one
+    const src = profile.photo_position !== null ? `/api/users/${profile.id}/photos/${profile.photo_position}?v=${profile.photo_id}` : null;
 
     // The heart is a sibling of the link, not a child: a button inside an
     // anchor is invalid HTML and its click would also open the profile.
