@@ -42,8 +42,7 @@ export default function Sidebar() {
                 <img src={logo} alt="" className="h-9 w-9" />
             </Link>
 
-            {/* Tighter on phones: the four links and the log out button share the bottom bar down to 320px. */}
-            <nav className="flex items-center gap-1 min-[400px]:gap-4 sm:gap-6 md:flex-col md:gap-1">
+            <nav className="flex items-center gap-6 md:flex-col md:gap-1">
                 {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
                     let badge = to === "/chat"  ? unreadTotal : 0;
                     badge = to ==="/notification" ? unreadCount : badge
@@ -77,8 +76,8 @@ export default function Sidebar() {
                 })}
             </nav>
 
-            {/* Visible at every width: logging out must be one click away on every page, phones included. */}
-            <div>
+            {/* Desktop only: on phones, log out is at the bottom of the profile page */}
+            <div className="hidden md:block">
                 <IconTooltip label="Log out">
                     <button
                         type="button"
