@@ -23,7 +23,7 @@ export default function BrowsePage() {
     }, [atEnd, showNotice]);
 
     return (
-        <div className="flex min-h-[calc(100dvh-5rem)] flex-col items-center justify-center p-6 md:min-h-dvh">
+        <div className="flex min-h-[calc(100dvh-5rem)] flex-col items-center justify-center overflow-x-clip p-6 md:min-h-dvh">
             <BrowseFilterButton />
 
             {!error && batch.length === 0 && isLoading && <Loader2 className="h-6 w-6 animate-spin text-matcha" />}
@@ -33,7 +33,7 @@ export default function BrowsePage() {
             )}
 
             <div
-                className={`flex w-full ${batch.length > 1 ? "justify-between" : "justify-center"}`}
+                className={`relative flex w-full ${batch.length > 1 ? "justify-between" : "justify-center"}`}
                 style={{ maxWidth: ROW_MAX_WIDTH, gap: MIN_GAP }}
             >
                 <AnimatePresence mode="popLayout" initial={false} key={itemsPerScreen} custom={{ direction }}>
