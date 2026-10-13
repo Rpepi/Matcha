@@ -6,6 +6,10 @@ os.environ.setdefault("SESSION_SECRET", "test-secret-key-for-testing-only-32b")
 os.environ.setdefault("MAIL_SECRET", "test-mail-secret-for-testing-only-32b")
 os.environ.setdefault("MAIL_HOST", "localhost")
 os.environ.setdefault("MAIL_PORT", "1025")
+# Forced, not a default: the chat tests send this Origin, and the server compares
+# it to FRONTEND_URL. With the value of the machine's .env (another port, a
+# 127.0.0.1 address) every chat WebSocket test would be refused.
+os.environ["FRONTEND_URL"] = "http://localhost:5173"
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
